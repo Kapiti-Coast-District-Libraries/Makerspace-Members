@@ -1,0 +1,264 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: users
+    //   - name: string (required)
+    //   - email: string (required)
+    //   - role: string (required, 'member' or 'admin')
+    //   - createdAt: timestamp (required)
+    //   - photoURL: string (optional)
+    // Collection: qualifications
+    //   - userId: string (required)
+    //   - equipmentId: string (required)
+    //   - status: string (required, 'pending' or 'active')
+    //   - acquiredAt: timestamp (optional)
+    //   - signedOffBy: string (optional)
+    // Collection: room_logs
+    //   - userId: string (required)
+    //   - signInTime: timestamp (required)
+    //   - signOutTime: timestamp (optional)
+    // Collection: usage_logs
+    //   - userId: string (required)
+    //   - equipmentId: string (required)
+    //   - amount: number (required)
+    //   - unit: string (required)
+    //   - loggedAt: timestamp (required)
+    // Collection: feedback
+    //   - userId: string (required)
+    //   - message: string (required)
+    //   - type: string (required, 'consumable', 'general')
+    //   - status: string (required, 'new', 'in-progress', 'resolved')
+    //   - createdAt: timestamp (required)
+    // Collection: instructions
+    //   - equipmentId: string (required)
+    //   - title: string (required)
+    //   - content: string (required)
+    //   - createdAt: timestamp (required)
+    //   - updatedAt: timestamp (optional)
+    // Collection: projects
+    //   - userId: string (required)
+    //   - authorName: string (required)
+    //   - authorPhoto: string (optional)
+    //   - title: string (required)
+    //   - description: string (required)
+    //   - imageUrl: string (required)
+    //   - equipmentUsed: list (optional)
+    //   - likes: number (required)
+    //   - createdAt: timestamp (required)
+    // Collection: equipment
+    //   - name: string (required)
+    //   - description: string (required)
+    //   - quiz: list (optional)
+    //   - createdAt: timestamp (required)
+    // Collection: announcements
+    //   - title: string (required)
+    //   - content: string (required)
+    //   - authorName: string (required)
+    //   - createdAt: timestamp (required)
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        (request.auth.token.email == "paraparaumumake@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['name', 'email', 'role', 'createdAt', 'photoURL', 'libraryCardNumber']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
+             data.role in ['member', 'admin'] &&
+             data.createdAt is timestamp &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() < 1000)) &&
+             (!('libraryCardNumber' in data) || (data.libraryCardNumber is string && data.libraryCardNumber.size() < 50));
+    }
+
+    function isValidQualification(data) {
+      return hasOnlyAllowedFields(['userId', 'equipmentId', 'status', 'createdAt', 'acquiredAt', 'signedOffBy', 'grantedAt']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.equipmentId is string && data.equipmentId.size() > 0 &&
+             data.status in ['pending', 'active'] &&
+             (!('createdAt' in data) || data.createdAt is timestamp) &&
+             (!('acquiredAt' in data) || data.acquiredAt is timestamp) &&
+             (!('grantedAt' in data) || data.grantedAt is timestamp) &&
+             (!('signedOffBy' in data) || (data.signedOffBy is string && data.signedOffBy.size() > 0));
+    }
+
+    function isValidRoomLog(data) {
+      return hasOnlyAllowedFields(['userId', 'signInTime', 'signOutTime']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.signInTime is timestamp &&
+             (!('signOutTime' in data) || data.signOutTime is timestamp);
+    }
+
+    function isValidUsageLog(data) {
+      return hasOnlyAllowedFields(['userId', 'equipmentId', 'amount', 'unit', 'loggedAt']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.equipmentId is string && data.equipmentId.size() > 0 &&
+             data.amount is number && data.amount >= 0 &&
+             data.unit is string && data.unit.size() > 0 && data.unit.size() < 50 &&
+             data.loggedAt is timestamp;
+    }
+
+    function isValidFeedback(data) {
+      return hasOnlyAllowedFields(['userId', 'message', 'type', 'status', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.message is string && data.message.size() > 0 && data.message.size() < 2000 &&
+             data.type in ['consumable', 'general', 'issue'] &&
+             data.status in ['new', 'in-progress', 'resolved', 'archived'] &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidInstruction(data) {
+      return hasOnlyAllowedFields(['equipmentId', 'title', 'content', 'createdAt', 'updatedAt']) &&
+             data.equipmentId is string && data.equipmentId.size() > 0 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.content is string && data.content.size() > 0 && data.content.size() < 10000 &&
+             (!('createdAt' in data) || data.createdAt is timestamp) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidProject(data) {
+      return hasOnlyAllowedFields(['userId', 'authorName', 'authorPhoto', 'title', 'description', 'imageUrl', 'equipmentUsed', 'likes', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() < 100 &&
+             (!('authorPhoto' in data) || (data.authorPhoto is string && data.authorPhoto.size() < 1000)) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 5000 &&
+             data.imageUrl is string && data.imageUrl.size() > 0 && data.imageUrl.size() < 1000000 &&
+             (!('equipmentUsed' in data) || (data.equipmentUsed is list && data.equipmentUsed.size() <= 20)) &&
+             data.likes is number && data.likes >= 0 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidEquipment(data) {
+      return hasOnlyAllowedFields(['name', 'description', 'quiz', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 1000 &&
+             (!('quiz' in data) || (data.quiz is list && data.quiz.size() <= 20)) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidAnnouncement(data) {
+      return hasOnlyAllowedFields(['title', 'content', 'authorName', 'createdAt']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.content is string && data.content.size() > 0 && data.content.size() < 5000 &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() < 100 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidEvent(data) {
+      return hasOnlyAllowedFields(['title', 'description', 'date', 'createdAt']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 5000 &&
+             data.date is timestamp &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidInductionBooking(data) {
+      return hasOnlyAllowedFields(['userId', 'equipmentId', 'date', 'status', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.equipmentId is string && data.equipmentId.size() > 0 &&
+             data.date is timestamp &&
+             data.status in ['pending', 'confirmed', 'completed', 'cancelled'] &&
+             data.createdAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'member' || isAdmin());
+      allow update: if isValidUser(request.resource.data) && (
+        isAdmin() || (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'libraryCardNumber']))
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /qualifications/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if (isAdmin() || (isOwner(request.resource.data.userId) && request.resource.data.status == 'pending')) && isValidQualification(request.resource.data);
+      allow update: if isAdmin() && isValidQualification(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /room_logs/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(request.resource.data.userId) && isValidRoomLog(request.resource.data);
+      allow update: if isOwner(resource.data.userId) && isValidRoomLog(request.resource.data) && request.resource.data.userId == resource.data.userId && request.resource.data.signInTime == resource.data.signInTime;
+      allow delete: if isAdmin();
+    }
+
+    match /usage_logs/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(request.resource.data.userId) && isValidUsageLog(request.resource.data);
+      allow update: if isAdmin() && isValidUsageLog(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /feedback/{docId} {
+      allow read: if isAdmin() || isOwner(resource.data.userId);
+      allow create: if isOwner(request.resource.data.userId) && isValidFeedback(request.resource.data);
+      allow update: if isAdmin() && isValidFeedback(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /instructions/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidInstruction(request.resource.data);
+      allow update: if isAdmin() && isValidInstruction(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /projects/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(request.resource.data.userId) && isValidProject(request.resource.data);
+      allow update: if isValidProject(request.resource.data) && request.resource.data.userId == resource.data.userId && (
+        isOwner(resource.data.userId) || 
+        isAdmin() || 
+        (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes']) && math.abs(request.resource.data.likes - resource.data.likes) == 1)
+      );
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    match /equipment/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidEquipment(request.resource.data);
+      allow update: if isAdmin() && isValidEquipment(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /announcements/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidAnnouncement(request.resource.data);
+      allow update: if isAdmin() && isValidAnnouncement(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    match /events/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidEvent(request.resource.data);
+      allow update: if isAdmin() && isValidEvent(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /induction_bookings/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(request.resource.data.userId) && isValidInductionBooking(request.resource.data);
+      allow update: if (isAdmin() || isOwner(resource.data.userId)) && isValidInductionBooking(request.resource.data);
+      allow delete: if isAdmin() || isOwner(resource.data.userId);
+    }
+  }
+}

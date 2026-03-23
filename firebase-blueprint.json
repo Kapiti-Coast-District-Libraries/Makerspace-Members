@@ -1,0 +1,131 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A makerspace user or admin",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["member", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "photoURL": { "type": "string", "format": "uri" },
+        "libraryCardNumber": { "type": "string" }
+      },
+      "required": ["name", "email", "role", "createdAt"]
+    },
+    "Qualification": {
+      "title": "Qualification",
+      "description": "A user's qualification for specific equipment",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "equipmentId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "active"] },
+        "acquiredAt": { "type": "string", "format": "date-time" },
+        "signedOffBy": { "type": "string", "description": "Admin UID who signed off" }
+      },
+      "required": ["userId", "equipmentId", "status"]
+    },
+    "RoomLog": {
+      "title": "RoomLog",
+      "description": "Log of a user entering/leaving the makerspace",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "signInTime": { "type": "string", "format": "date-time" },
+        "signOutTime": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "signInTime"]
+    },
+    "UsageLog": {
+      "title": "UsageLog",
+      "description": "Log of equipment usage",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "equipmentId": { "type": "string" },
+        "amount": { "type": "number" },
+        "unit": { "type": "string" },
+        "loggedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "equipmentId", "amount", "unit", "loggedAt"]
+    },
+    "Feedback": {
+      "title": "Feedback",
+      "description": "User feedback or consumable report",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["consumable", "general", "issue"] },
+        "status": { "type": "string", "enum": ["new", "in-progress", "resolved", "archived"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "message", "type", "status", "createdAt"]
+    },
+    "Instruction": {
+      "title": "Instruction",
+      "description": "Step-by-step instruction manual for equipment",
+      "type": "object",
+      "properties": {
+        "equipmentId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["equipmentId", "title", "content", "createdAt"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "A project created by a user to share on the board",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string", "format": "uri" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "imageUrl": { "type": "string", "format": "uri" },
+        "equipmentUsed": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "likes": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "authorName", "title", "description", "imageUrl", "likes", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Users collection"
+    },
+    "qualifications/{qualificationId}": {
+      "schema": { "$ref": "#/entities/Qualification" },
+      "description": "Qualifications collection"
+    },
+    "room_logs/{logId}": {
+      "schema": { "$ref": "#/entities/RoomLog" },
+      "description": "Room logs collection"
+    },
+    "usage_logs/{logId}": {
+      "schema": { "$ref": "#/entities/UsageLog" },
+      "description": "Usage logs collection"
+    },
+    "feedback/{feedbackId}": {
+      "schema": { "$ref": "#/entities/Feedback" },
+      "description": "Feedback collection"
+    },
+    "instructions/{instructionId}": {
+      "schema": { "$ref": "#/entities/Instruction" },
+      "description": "Instructions collection"
+    },
+    "projects/{projectId}": {
+      "schema": { "$ref": "#/entities/Project" },
+      "description": "Projects collection"
+    }
+  }
+}
