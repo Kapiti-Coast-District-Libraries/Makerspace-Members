@@ -1,5 +1,5 @@
 import { Outlet, Link, useNavigate, useLocation } from 'react-router';
-import { Home, BookOpen, PenTool, MessageSquare, LogOut, FileText, Image as ImageIcon, Shield, User, Clock, Box } from 'lucide-react';
+import { Home, BookOpen, PenTool, MessageSquare, LogOut, FileText, Image as ImageIcon, Shield, User, Clock, Box, UploadCloud } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
@@ -21,6 +21,7 @@ export function Layout() {
     { path: '/log-usage', label: 'Log Usage', icon: PenTool },
     { path: '/projects', label: 'Project Board', icon: ImageIcon },
     { path: '/design-tools', label: 'Design Tools', icon: Box },
+    { path: '/documents', label: 'My Documents', icon: UploadCloud },
     { path: '/feedback', label: 'Feedback', icon: MessageSquare },
     { path: '/profile', label: 'Profile', icon: User },
   ];

@@ -16,6 +16,7 @@ import { Instructions } from './pages/Instructions';
 import { ProjectBoard } from './pages/ProjectBoard';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { Profile } from './pages/Profile';
+import { MyDocuments } from './pages/MyDocuments';
 import { DesignTools } from './pages/DesignTools';
 import { ToolShell } from './pages/ToolShell';
 
@@ -46,6 +47,7 @@ export default function App() {
             <Route path="/projects" element={<ProjectBoard />} />
             <Route path="/design-tools" element={<DesignTools />} />
             <Route path="/design-tools/view/:toolId" element={<ToolShell />} />
+            <Route path="/documents" element={<MyDocuments />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
           </Route>

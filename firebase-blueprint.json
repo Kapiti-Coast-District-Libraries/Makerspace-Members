@@ -96,6 +96,24 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "authorName", "title", "description", "imageUrl", "likes", "createdAt"]
+    },
+    "PrintJob": {
+      "title": "PrintJob",
+      "description": "A document/job uploaded by a user for processing",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "fileName": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "fileData": { "type": "string", "description": "Base64 encoded file data for small files" },
+        "driveFileId": { "type": "string", "description": "Google Drive file ID" },
+        "filamentColor": { "type": "string" },
+        "notes": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "processing", "ready", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "fileName", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -126,6 +144,10 @@
     "projects/{projectId}": {
       "schema": { "$ref": "#/entities/Project" },
       "description": "Projects collection"
+    },
+    "print_jobs/{jobId}": {
+      "schema": { "$ref": "#/entities/PrintJob" },
+      "description": "Print jobs collection"
     }
   }
 }

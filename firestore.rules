@@ -48,6 +48,15 @@ service cloud.firestore {
     //   - equipmentUsed: list (optional)
     //   - likes: number (required)
     //   - createdAt: timestamp (required)
+    // Collection: print_jobs
+    //   - userId: string (required)
+    //   - userName: string (required)
+    //   - fileName: string (required)
+    //   - fileUrl: string (required)
+    //   - filamentColor: string (optional)
+    //   - notes: string (optional)
+    //   - status: string (required, 'pending', 'processing', 'ready', 'completed')
+    //   - createdAt: timestamp (required)
     // Collection: equipment
     //   - name: string (required)
     //   - description: string (required)
@@ -190,6 +199,20 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidPrintJob(data) {
+      return hasOnlyAllowedFields(['userId', 'userName', 'fileName', 'fileUrl', 'fileData', 'driveFileId', 'filamentColor', 'notes', 'status', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() < 100 &&
+             data.fileName is string && data.fileName.size() > 0 && data.fileName.size() < 200 &&
+             (!('fileUrl' in data) || (data.fileUrl is string && data.fileUrl.size() < 1000)) &&
+             (!('fileData' in data) || (data.fileData is string && data.fileData.size() < 1000000)) &&
+             (!('driveFileId' in data) || (data.driveFileId is string && data.driveFileId.size() < 200)) &&
+             (!('filamentColor' in data) || (data.filamentColor is string && data.filamentColor.size() < 100)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 1000)) &&
+             data.status in ['pending', 'processing', 'ready', 'completed'] &&
+             data.createdAt is timestamp;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'member' || isAdmin());
@@ -276,6 +299,13 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isOwner(request.resource.data.userId) && isValidInductionBooking(request.resource.data);
       allow update: if (isAdmin() || isOwner(resource.data.userId)) && isValidInductionBooking(request.resource.data);
+      allow delete: if isAdmin() || isOwner(resource.data.userId);
+    }
+
+    match /print_jobs/{docId} {
+      allow read: if isAdmin() || isOwner(resource.data.userId);
+      allow create: if isOwner(request.resource.data.userId) && isValidPrintJob(request.resource.data);
+      allow update: if (isAdmin() || isOwner(resource.data.userId)) && isValidPrintJob(request.resource.data);
       allow delete: if isAdmin() || isOwner(resource.data.userId);
     }
   }

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDocs, where, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database, Settings, Plus, Trash2, Calendar, Box } from 'lucide-react';
+import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database, Settings, Plus, Trash2, Calendar, Box, UploadCloud, PlayCircle, Download } from 'lucide-react';
 
 export function AdminDashboard() {
   const { user, userRole } = useAuth();
@@ -13,6 +13,7 @@ export function AdminDashboard() {
   const [equipment, setEquipment] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [designTools, setDesignTools] = useState<any[]>([]);
+  const [printJobs, setPrintJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [seedMessage, setSeedMessage] = useState('');
@@ -80,6 +81,12 @@ export function AdminDashboard() {
       setEvents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => console.error("Error fetching events:", error));
 
+    // Fetch print jobs
+    const jobsQuery = query(collection(db, 'print_jobs'), orderBy('createdAt', 'desc'));
+    const unsubJobs = onSnapshot(jobsQuery, (snapshot) => {
+      setPrintJobs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => console.error("Error fetching print jobs:", error));
+
     // Fetch design tools
     const toolsQuery = query(collection(db, 'design_tools'), orderBy('createdAt', 'desc'));
     const unsubTools = onSnapshot(toolsQuery, (snapshot) => {
@@ -97,6 +104,7 @@ export function AdminDashboard() {
       unsubFeedback();
       unsubEquip();
       unsubEvents();
+      unsubJobs();
       unsubTools();
     };
   }, [userRole]);
@@ -149,6 +157,26 @@ export function AdminDashboard() {
       });
     } catch (err) {
       console.error('Error rejecting booking:', err);
+    }
+  };
+
+  const handleUpdatePrintJobStatus = async (jobId: string, status: string) => {
+    try {
+      await updateDoc(doc(db, 'print_jobs', jobId), {
+        status
+      });
+    } catch (err) {
+      console.error('Error updating print job status:', err);
+    }
+  };
+
+  const handleDeletePrintJob = async (job: any) => {
+    if (!window.confirm('Are you sure you want to delete this document?')) return;
+    try {
+      // Delete from Firestore
+      await deleteDoc(doc(db, 'print_jobs', job.id));
+    } catch (err) {
+      console.error('Error deleting print job:', err);
     }
   };
 
@@ -930,6 +958,81 @@ export function AdminDashboard() {
                   <p className="text-xs text-stone-400">User ID: {item.userId} • {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString() : 'Unknown'}</p>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Document Uploads */}
+        <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-200 lg:col-span-2">
+          <h2 className="text-2xl font-semibold mb-6 flex items-center">
+            <UploadCloud className="mr-3 text-stone-400" />
+            Document Uploads
+          </h2>
+          {printJobs.length === 0 ? (
+            <p className="text-stone-500 text-center py-4">No documents uploaded yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-stone-200 text-sm text-stone-500">
+                    <th className="pb-3 font-medium">User</th>
+                    <th className="pb-3 font-medium">Document</th>
+                    <th className="pb-3 font-medium">Details</th>
+                    <th className="pb-3 font-medium">Status</th>
+                    <th className="pb-3 font-medium">Date</th>
+                    <th className="pb-3 font-medium text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {printJobs.map(job => (
+                    <tr key={job.id} className="border-b border-stone-100 last:border-0">
+                      <td className="py-4 font-medium text-stone-900">{job.userName}</td>
+                      <td className="py-4 text-stone-600 max-w-[200px] truncate" title={job.fileName}>{job.fileName}</td>
+                      <td className="py-4 text-stone-500">
+                        {job.filamentColor && <div className="text-xs"><span className="font-medium">Color:</span> {job.filamentColor}</div>}
+                        {job.notes && <div className="text-xs truncate max-w-[150px]" title={job.notes}><span className="font-medium">Notes:</span> {job.notes}</div>}
+                      </td>
+                      <td className="py-4">
+                        <select
+                          value={job.status || 'pending'}
+                          onChange={(e) => handleUpdatePrintJobStatus(job.id, e.target.value)}
+                          className={`text-sm border border-stone-200 rounded-lg px-2 py-1 outline-none ${
+                            job.status === 'pending' ? 'bg-amber-50 text-amber-800' :
+                            job.status === 'processing' ? 'bg-blue-50 text-blue-800' :
+                            job.status === 'ready' ? 'bg-emerald-50 text-emerald-800' :
+                            'bg-stone-50 text-stone-800'
+                          }`}
+                        >
+                          <option value="pending">Pending</option>
+                          <option value="processing">Processing</option>
+                          <option value="ready">Ready</option>
+                          <option value="completed">Completed</option>
+                        </select>
+                      </td>
+                      <td className="py-4 text-stone-500">{job.createdAt?.toDate ? job.createdAt.toDate().toLocaleDateString() : 'Unknown'}</td>
+                      <td className="py-4 text-right space-x-2">
+                        <a
+                          href={job.fileUrl || job.fileData}
+                          download={job.fileName}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex p-2 text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
+                          title="Download"
+                        >
+                          <Download size={18} />
+                        </a>
+                        <button
+                          onClick={() => handleDeletePrintJob(job)}
+                          className="inline-flex p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

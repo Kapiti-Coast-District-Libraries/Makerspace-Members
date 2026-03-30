@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, addDoc, updateDoc, doc, serverTimestamp, orderBy, limit, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { LogIn, LogOut, CheckCircle, Clock, Bell, Trash2, Plus, Calendar, Star } from 'lucide-react';
+import { Link } from 'react-router';
+import { LogIn, LogOut, CheckCircle, Clock, Bell, Trash2, Plus, Calendar, Star, FileText } from 'lucide-react';
 
 export function Dashboard() {
   const { user, userRole } = useAuth();
@@ -11,6 +12,7 @@ export function Dashboard() {
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [featuredProjects, setFeaturedProjects] = useState<any[]>([]);
+  const [readyJobs, setReadyJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Announcement form state
@@ -77,12 +79,23 @@ export function Dashboard() {
       setLoading(false);
     });
 
+    // Listen to ready print jobs
+    const jobsQuery = query(
+      collection(db, 'print_jobs'),
+      where('userId', '==', user.uid),
+      where('status', '==', 'ready')
+    );
+    const unsubJobs = onSnapshot(jobsQuery, (snapshot) => {
+      setReadyJobs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
     return () => {
       unsubRoom();
       unsubQual();
       unsubAnn();
       unsubEvents();
       unsubProjects();
+      unsubJobs();
     };
   }, [user]);
 
@@ -141,6 +154,28 @@ export function Dashboard() {
         <h1 className="text-4xl font-bold tracking-tight text-stone-900">Welcome, {user?.displayName || 'User'}</h1>
         <p className="text-stone-500 mt-2 text-lg">Manage your makerspace access and activity.</p>
       </header>
+
+      {readyJobs.length > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-3xl mb-8 flex items-start sm:items-center justify-between flex-col sm:flex-row gap-4">
+          <div className="flex items-center">
+            <div className="p-3 bg-emerald-100 text-emerald-600 rounded-full mr-4">
+              <FileText size={24} />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-emerald-900">Your work is ready!</h3>
+              <p className="text-emerald-700 mt-1">
+                You have {readyJobs.length} document{readyJobs.length > 1 ? 's' : ''} ready for pickup or review.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/documents"
+            className="px-6 py-3 bg-emerald-600 text-white font-medium rounded-xl hover:bg-emerald-700 transition-colors whitespace-nowrap"
+          >
+            View Documents
+          </Link>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Room Status & Qualifications */}
