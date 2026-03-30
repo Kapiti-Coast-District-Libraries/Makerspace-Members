@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDocs, where, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database, Settings, Plus, Trash2, Calendar } from 'lucide-react';
+import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database, Settings, Plus, Trash2, Calendar, Box } from 'lucide-react';
 
 export function AdminDashboard() {
   const { user, userRole } = useAuth();
@@ -12,6 +12,7 @@ export function AdminDashboard() {
   const [feedback, setFeedback] = useState<any[]>([]);
   const [equipment, setEquipment] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
+  const [designTools, setDesignTools] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [seedMessage, setSeedMessage] = useState('');
@@ -27,6 +28,15 @@ export function AdminDashboard() {
   const [newEventTitle, setNewEventTitle] = useState('');
   const [newEventDesc, setNewEventDesc] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
+
+  // Design Tool form state
+  const [isAddingDesignTool, setIsAddingDesignTool] = useState(false);
+  const [newDesignToolName, setNewDesignToolName] = useState('');
+  const [newDesignToolDesc, setNewDesignToolDesc] = useState('');
+  const [newDesignToolUrl, setNewDesignToolUrl] = useState('');
+  const [newDesignToolIcon, setNewDesignToolIcon] = useState('Box');
+  const [newDesignToolColor, setNewDesignToolColor] = useState('bg-indigo-100 text-indigo-700');
+  const [newDesignToolType, setNewDesignToolType] = useState<'external' | 'react' | 'iframe'>('iframe');
 
   // Feedback state
   const [showArchivedFeedback, setShowArchivedFeedback] = useState(false);
@@ -68,9 +78,15 @@ export function AdminDashboard() {
     const eventsQuery = query(collection(db, 'events'), orderBy('date', 'asc'));
     const unsubEvents = onSnapshot(eventsQuery, (snapshot) => {
       setEvents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => console.error("Error fetching events:", error));
+
+    // Fetch design tools
+    const toolsQuery = query(collection(db, 'design_tools'), orderBy('createdAt', 'desc'));
+    const unsubTools = onSnapshot(toolsQuery, (snapshot) => {
+      setDesignTools(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching events:", error);
+      console.error("Error fetching design tools:", error);
       setLoading(false);
     });
 
@@ -81,6 +97,7 @@ export function AdminDashboard() {
       unsubFeedback();
       unsubEquip();
       unsubEvents();
+      unsubTools();
     };
   }, [userRole]);
 
@@ -216,6 +233,39 @@ export function AdminDashboard() {
       await deleteDoc(doc(db, 'events', id));
     } catch (err) {
       console.error('Error deleting event:', err);
+    }
+  };
+
+  const handleAddDesignTool = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    try {
+      await addDoc(collection(db, 'design_tools'), {
+        name: newDesignToolName,
+        description: newDesignToolDesc,
+        url: newDesignToolUrl,
+        icon: newDesignToolIcon,
+        color: newDesignToolColor,
+        type: newDesignToolType,
+        createdAt: serverTimestamp()
+      });
+      setNewDesignToolName('');
+      setNewDesignToolDesc('');
+      setNewDesignToolUrl('');
+      setNewDesignToolIcon('Box');
+      setNewDesignToolColor('bg-indigo-100 text-indigo-700');
+      setNewDesignToolType('iframe');
+      setIsAddingDesignTool(false);
+    } catch (err) {
+      console.error('Error adding design tool:', err);
+    }
+  };
+
+  const handleDeleteDesignTool = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'design_tools', id));
+    } catch (err) {
+      console.error('Error deleting design tool:', err);
     }
   };
 
@@ -694,6 +744,144 @@ export function AdminDashboard() {
                       {eq.quiz?.length || 0} Quiz Questions
                     </span>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Manage Design Tools */}
+        <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-200">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-semibold flex items-center">
+              <Box className="mr-3 text-stone-400" />
+              Manage Design Tools
+            </h2>
+            {!isAddingDesignTool && (
+              <button
+                onClick={() => setIsAddingDesignTool(true)}
+                className="flex items-center text-sm bg-stone-100 text-stone-700 px-3 py-2 rounded-xl hover:bg-stone-200 transition-colors"
+              >
+                <Plus size={16} className="mr-1" />
+                Add Tool
+              </button>
+            )}
+          </div>
+
+          {isAddingDesignTool && (
+            <form onSubmit={handleAddDesignTool} className="mb-8 p-6 bg-stone-50 rounded-2xl border border-stone-200">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Tool Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={newDesignToolName}
+                    onChange={(e) => setNewDesignToolName(e.target.value)}
+                    className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
+                    placeholder="e.g. Vector Editor"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Description</label>
+                  <textarea
+                    required
+                    value={newDesignToolDesc}
+                    onChange={(e) => setNewDesignToolDesc(e.target.value)}
+                    className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
+                    placeholder="Briefly describe what this tool does."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Tool Type</label>
+                  <select
+                    value={newDesignToolType}
+                    onChange={(e) => setNewDesignToolType(e.target.value as any)}
+                    className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
+                  >
+                    <option value="iframe">Embed Link (Opens in Iframe)</option>
+                    <option value="external">External Link (Opens in New Tab)</option>
+                    <option value="react">Internal React Route (App Route)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Tool URL</label>
+                  <input
+                    type="text"
+                    required
+                    value={newDesignToolUrl}
+                    onChange={(e) => setNewDesignToolUrl(e.target.value)}
+                    className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
+                    placeholder={newDesignToolType === 'external' ? 'https://...' : newDesignToolType === 'iframe' ? 'https://my-design-tool.com' : '/design-tools/sculpt'}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Icon (Lucide name)</label>
+                    <select
+                      value={newDesignToolIcon}
+                      onChange={(e) => setNewDesignToolIcon(e.target.value)}
+                      className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
+                    >
+                      <option value="Box">Box</option>
+                      <option value="PenTool">PenTool</option>
+                      <option value="Layers">Layers</option>
+                      <option value="Image">Image</option>
+                      <option value="Scissors">Scissors</option>
+                      <option value="Type">Type</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Color Class</label>
+                    <select
+                      value={newDesignToolColor}
+                      onChange={(e) => setNewDesignToolColor(e.target.value)}
+                      className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
+                    >
+                      <option value="bg-indigo-100 text-indigo-700">Indigo</option>
+                      <option value="bg-emerald-100 text-emerald-700">Emerald</option>
+                      <option value="bg-amber-100 text-amber-700">Amber</option>
+                      <option value="bg-rose-100 text-rose-700">Rose</option>
+                      <option value="bg-blue-100 text-blue-700">Blue</option>
+                      <option value="bg-purple-100 text-purple-700">Purple</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex justify-end space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingDesignTool(false)}
+                    className="px-4 py-2 text-stone-600 hover:bg-stone-200 rounded-xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-colors"
+                  >
+                    Save Tool
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
+          {designTools.length === 0 ? (
+            <p className="text-stone-500 text-center py-4">No external tools added yet.</p>
+          ) : (
+            <div className="space-y-4">
+              {designTools.map(tool => (
+                <div key={tool.id} className="p-4 bg-stone-50 rounded-2xl relative group">
+                  <button
+                    onClick={() => handleDeleteDesignTool(tool.id)}
+                    className="absolute top-4 right-4 p-2 text-stone-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Delete tool"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                  <h3 className="font-semibold text-stone-900 mb-1 pr-8">{tool.name}</h3>
+                  <p className="text-sm text-stone-600 mb-1">{tool.description}</p>
+                  <p className="text-xs text-stone-400 truncate pr-8">{tool.url}</p>
                 </div>
               ))}
             </div>

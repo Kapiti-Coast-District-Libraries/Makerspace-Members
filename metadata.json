@@ -1,5 +1,5 @@
 {
-  "name": "Remix: Makerspace Dashboard",
+  "name": "Makerspace Dashboard",
   "description": "A dashboard for a public library makerspace to manage members, inductions, room access, and equipment usage.",
   "requestFramePermissions": []
 }

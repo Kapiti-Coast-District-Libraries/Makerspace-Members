@@ -17,7 +17,7 @@ import { ProjectBoard } from './pages/ProjectBoard';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { Profile } from './pages/Profile';
 import { DesignTools } from './pages/DesignTools';
-import { SculptTool } from './pages/tools/SculptTool';
+import { ToolShell } from './pages/ToolShell';
 
 function ProtectedRoute({ children, requireAdmin = false }: { children: React.ReactNode, requireAdmin?: boolean }) {
   const { user, userRole, loading } = useAuth();
@@ -45,7 +45,7 @@ export default function App() {
             <Route path="/instructions" element={<Instructions />} />
             <Route path="/projects" element={<ProjectBoard />} />
             <Route path="/design-tools" element={<DesignTools />} />
-            <Route path="/design-tools/sculpt" element={<SculptTool />} />
+            <Route path="/design-tools/view/:toolId" element={<ToolShell />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
           </Route>
