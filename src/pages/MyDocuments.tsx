@@ -70,8 +70,8 @@ interface PrintJob {
 }
 
 export function MyDocuments() {
-  const { user } = useAuth();
-  const isAdmin = user?.email === 'paraparaumumake@gmail.com';
+  const { user, userRole, loading: authLoading } = useAuth();
+  const isAdmin = userRole === 'admin';
   const [jobs, setJobs] = useState<PrintJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -87,6 +87,7 @@ export function MyDocuments() {
   const [checkingDrive, setCheckingDrive] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
     checkDriveStatus();
     
     const handleMessage = (event: MessageEvent) => {
@@ -96,13 +97,14 @@ export function MyDocuments() {
         return;
       }
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+        console.log('Client: OAuth success message received');
         checkDriveStatus();
         setSuccess('Google Drive connected successfully!');
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [authLoading]);
 
   const checkDriveStatus = async () => {
     try {
@@ -117,12 +119,27 @@ export function MyDocuments() {
   };
 
   const handleConnectDrive = async () => {
+    // Open window immediately to avoid popup blockers
+    const authWindow = window.open('about:blank', 'google_auth_popup', 'width=600,height=700');
+    if (!authWindow) {
+      setError('Popup blocked! Please allow popups for this site to connect Google Drive.');
+      return;
+    }
+    
+    authWindow.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px;">Loading authentication...</p>');
+
     try {
+      console.log('Client: Fetching Google Auth URL...');
       const response = await fetch('/api/auth/google/url');
+      if (!response.ok) throw new Error('Failed to fetch auth URL');
+      
       const { url } = await response.json();
-      window.open(url, 'google_auth_popup', 'width=600,height=700');
-    } catch (err) {
-      setError('Failed to get authentication URL');
+      console.log('Client: Redirecting popup to:', url);
+      authWindow.location.href = url;
+    } catch (err: any) {
+      console.error('Client: Error starting OAuth:', err);
+      authWindow.close();
+      setError('Failed to start Google Drive connection: ' + (err.message || 'Unknown error'));
     }
   };
 
@@ -137,7 +154,7 @@ export function MyDocuments() {
   };
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || authLoading) return;
 
     const q = query(
       collection(db, 'print_jobs'),
@@ -159,7 +176,15 @@ export function MyDocuments() {
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, authLoading]);
+
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 size={48} className="animate-spin text-stone-300" />
+      </div>
+    );
+  }
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -318,7 +343,11 @@ export function MyDocuments() {
               Upload New
             </h2>
 
-            {!isDriveConnected ? (
+            {checkingDrive ? (
+              <div className="flex items-center justify-center py-12 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
+                <Loader2 size={32} className="animate-spin text-stone-400" />
+              </div>
+            ) : !isDriveConnected ? (
               <div className="p-6 bg-stone-50 rounded-2xl border border-dashed border-stone-200 text-center space-y-4">
                 <div className="p-3 bg-white rounded-full w-fit mx-auto shadow-sm">
                   <ExternalLink className="text-stone-400" size={24} />

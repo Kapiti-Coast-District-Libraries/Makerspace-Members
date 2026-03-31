@@ -94,15 +94,26 @@ async function startServer() {
   };
 
   expressApp.get('/api/auth/google/url', (req, res) => {
-    const url = oauth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: [
-        'https://www.googleapis.com/auth/drive.file',
-        'https://www.googleapis.com/auth/userinfo.email'
-      ],
-      prompt: 'consent',
-    });
-    res.json({ url });
+    try {
+      if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+        console.error('Server: Missing Google OAuth credentials.');
+        return res.status(500).json({ error: 'Server missing Google OAuth credentials' });
+      }
+
+      const url = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: [
+          'https://www.googleapis.com/auth/drive.file',
+          'https://www.googleapis.com/auth/userinfo.email'
+        ],
+        prompt: 'consent',
+      });
+      console.log('Server: Generated Google Auth URL successfully');
+      res.json({ url });
+    } catch (err: any) {
+      console.error('Server: Error generating Google Auth URL:', err);
+      res.status(500).json({ error: err.message || 'Failed to generate auth URL' });
+    }
   });
 
   expressApp.get('/api/auth/google/callback', async (req, res) => {
