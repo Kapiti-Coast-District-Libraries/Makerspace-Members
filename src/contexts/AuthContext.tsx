@@ -20,23 +20,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log('AuthProvider: Auth state changed:', firebaseUser ? firebaseUser.email : 'No user');
       try {
         if (firebaseUser) {
           setUser(firebaseUser);
           
           // Check if user exists in Firestore
+          console.log('AuthProvider: Fetching user profile from Firestore...');
           const userRef = doc(db, 'users', firebaseUser.uid);
           const userSnap = await getDoc(userRef);
           
           if (userSnap.exists()) {
             let role = userSnap.data().role;
+            console.log('AuthProvider: User profile found, role:', role);
             // Force admin role for the designated admin email
             if (firebaseUser.email === 'paraparaumumake@gmail.com' && role !== 'admin') {
+              console.log('AuthProvider: Forcing admin role for', firebaseUser.email);
               role = 'admin';
               await updateDoc(userRef, { role: 'admin' });
             }
             setUserRole(role);
           } else {
+            console.log('AuthProvider: No user profile found, creating one...');
             // Create new user profile
             const isFirstUser = firebaseUser.email === 'paraparaumumake@gmail.com';
             const role = isFirstUser ? 'admin' : 'member';
@@ -53,6 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             
             await setDoc(userRef, userData);
+            console.log('AuthProvider: User profile created with role:', role);
             setUserRole(role);
           }
         } else {
@@ -60,7 +66,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUserRole(null);
         }
       } catch (err) {
-        console.error("Error in auth state change:", err);
+        console.error("AuthProvider: Error in auth state change:", err);
       } finally {
         setLoading(false);
       }

@@ -86,9 +86,11 @@ export function MyDocuments() {
   const [isDriveConnected, setIsDriveConnected] = useState(false);
   const [connectionMethod, setConnectionMethod] = useState<'none' | 'oauth' | 'service_account'>('none');
   const [checkingDrive, setCheckingDrive] = useState(true);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   useEffect(() => {
     if (authLoading) return;
+    console.log('MyDocuments: Checking Drive status...');
     checkDriveStatus();
     
     const handleMessage = (event: MessageEvent) => {
@@ -115,19 +117,23 @@ export function MyDocuments() {
     try {
       const response = await fetch('/api/auth/google/status');
       const data = await response.json();
+      console.log('MyDocuments: Drive status response:', data);
       setIsDriveConnected(data.connected);
       setConnectionMethod(data.method || 'none');
+      setDebugInfo(data.debug);
     } catch (err) {
-      console.error('Error checking drive status:', err);
+      console.error('MyDocuments: Error checking drive status:', err);
     } finally {
       setCheckingDrive(false);
     }
   };
 
   const handleConnectDrive = async () => {
+    console.log('MyDocuments: handleConnectDrive clicked');
     // Open window immediately to avoid popup blockers
     const authWindow = window.open('about:blank', 'google_auth_popup', 'width=600,height=700');
     if (!authWindow) {
+      console.error('MyDocuments: Popup blocked');
       setError('Popup blocked! Please allow popups for this site to connect Google Drive.');
       return;
     }
@@ -135,15 +141,18 @@ export function MyDocuments() {
     authWindow.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px;">Loading authentication...</p>');
 
     try {
-      console.log('Client: Fetching Google Auth URL...');
+      console.log('MyDocuments: Fetching Google Auth URL...');
       const response = await fetch('/api/auth/google/url');
-      if (!response.ok) throw new Error('Failed to fetch auth URL');
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ error: 'Failed to fetch' }));
+        throw new Error(errData.error || 'Failed to fetch auth URL');
+      }
       
       const { url } = await response.json();
-      console.log('Client: Redirecting popup to:', url);
+      console.log('MyDocuments: Redirecting popup to:', url);
       authWindow.location.href = url;
     } catch (err: any) {
-      console.error('Client: Error starting OAuth:', err);
+      console.error('MyDocuments: Error starting OAuth:', err);
       authWindow.close();
       setError('Failed to start Google Drive connection: ' + (err.message || 'Unknown error'));
     }
@@ -393,6 +402,13 @@ export function MyDocuments() {
                         Disconnect
                       </button>
                     )}
+                  </div>
+                )}
+
+                {isAdmin && debugInfo && (
+                  <div className="mb-6 p-4 bg-stone-50 rounded-xl text-[10px] font-mono text-stone-500 overflow-auto max-h-32">
+                    <p className="font-bold mb-1">Debug Info (Admin Only):</p>
+                    <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
                   </div>
                 )}
 

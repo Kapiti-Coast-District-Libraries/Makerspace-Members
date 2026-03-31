@@ -12,19 +12,42 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 dotenv.config();
 
+const getAppUrl = () => {
+  if (process.env.APP_URL) return process.env.APP_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return 'http://localhost:3000';
+};
+
+const APP_URL = getAppUrl();
+
 // Import the Firebase configuration for project ID and database ID
-const firebaseConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf-8'));
+let firebaseConfig: any = {};
+try {
+  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  if (fs.existsSync(configPath)) {
+    firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } else {
+    console.warn('Server: firebase-applet-config.json not found, using empty config.');
+  }
+} catch (err) {
+  console.error('Server: Failed to read firebase-applet-config.json:', err);
+}
 
 // Initialize Firebase Admin SDK
 if (!getApps().length) {
-  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT 
-    ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) 
-    : undefined;
+  try {
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT 
+      ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) 
+      : undefined;
 
-  initializeApp({
-    credential: serviceAccount ? cert(serviceAccount) : applicationDefault(),
-    projectId: firebaseConfig.projectId
-  });
+    initializeApp({
+      credential: serviceAccount ? cert(serviceAccount) : applicationDefault(),
+      projectId: firebaseConfig.projectId || process.env.GOOGLE_CLOUD_PROJECT
+    });
+    console.log('Server: Firebase Admin initialized successfully.');
+  } catch (err) {
+    console.error('Server: Failed to initialize Firebase Admin:', err);
+  }
 }
 
 const firestore = getFirestore(firebaseConfig.firestoreDatabaseId);
@@ -42,8 +65,7 @@ const ADMIN_EMAIL = 'paraparaumumake@gmail.com';
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI || 
-  (process.env.APP_URL ? `${process.env.APP_URL}/api/auth/google/callback` : 'http://localhost:3000/api/auth/google/callback')
+  process.env.GOOGLE_REDIRECT_URI || `${APP_URL}/api/auth/google/callback`
 );
 
 // Initialize Google Drive client cache
@@ -59,8 +81,8 @@ async function startServer() {
     name: 'session',
     keys: [process.env.SESSION_SECRET || 'makerspace-secret'],
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    secure: true,
-    sameSite: 'none',
+    secure: true, // Required for sameSite: 'none'
+    sameSite: 'none', // Required for iframes
   }));
 
   // Google OAuth Routes
@@ -100,24 +122,10 @@ async function startServer() {
     if (driveClient) return driveClient;
 
     // Option 1: Hard-wired Service Account (Preferred for production)
-    const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-    const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-    const privateKey = process.env.GOOGLE_PRIVATE_KEY;
-
-    if (serviceAccountJson || (clientEmail && privateKey)) {
+    if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
       try {
         console.log('Server: Initializing Drive with Service Account...');
-        let credentials;
-        
-        if (serviceAccountJson) {
-          credentials = JSON.parse(serviceAccountJson);
-        } else {
-          credentials = {
-            client_email: clientEmail,
-            private_key: privateKey?.replace(/\\n/g, '\n'),
-          };
-        }
-
+        const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
         const auth = new google.auth.GoogleAuth({
           credentials,
           scopes: ['https://www.googleapis.com/auth/drive.file'],
@@ -223,14 +231,40 @@ async function startServer() {
 
   expressApp.get('/api/auth/google/status', async (req, res) => {
     try {
-      if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON || (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY)) {
-        return res.json({ connected: true, method: 'service_account' });
-      }
+      const hasServiceAccount = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
       const client = await getDriveClient();
-      res.json({ connected: !!client, method: client ? 'oauth' : 'none' });
-    } catch (error) {
-      res.json({ connected: false });
+      res.json({ 
+        connected: !!client || hasServiceAccount, 
+        method: hasServiceAccount ? 'service_account' : (client ? 'oauth' : 'none'),
+        debug: {
+          hasServiceAccount,
+          hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+          hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+          hasRedirectUri: !!process.env.GOOGLE_REDIRECT_URI,
+          appUrl: APP_URL,
+          nodeEnv: process.env.NODE_ENV
+        }
+      });
+    } catch (error: any) {
+      console.error('Server: Status check error:', error);
+      res.json({ connected: false, error: error.message });
     }
+  });
+
+  expressApp.get('/api/health', (req, res) => {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      env: {
+        hasServiceAccount: !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+        hasFirebaseAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+        hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+        hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+        appUrl: APP_URL,
+        nodeEnv: process.env.NODE_ENV || 'development',
+        isVercel: !!process.env.VERCEL
+      }
+    });
   });
 
   expressApp.post('/api/auth/google/logout', async (req, res) => {
@@ -352,6 +386,7 @@ async function startServer() {
 
   expressApp.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Detected App URL: ${APP_URL}`);
   });
 }
 
