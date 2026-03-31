@@ -100,10 +100,24 @@ async function startServer() {
     if (driveClient) return driveClient;
 
     // Option 1: Hard-wired Service Account (Preferred for production)
-    if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
+    const privateKey = process.env.GOOGLE_PRIVATE_KEY;
+
+    if (serviceAccountJson || (clientEmail && privateKey)) {
       try {
         console.log('Server: Initializing Drive with Service Account...');
-        const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+        let credentials;
+        
+        if (serviceAccountJson) {
+          credentials = JSON.parse(serviceAccountJson);
+        } else {
+          credentials = {
+            client_email: clientEmail,
+            private_key: privateKey?.replace(/\\n/g, '\n'),
+          };
+        }
+
         const auth = new google.auth.GoogleAuth({
           credentials,
           scopes: ['https://www.googleapis.com/auth/drive.file'],
@@ -209,7 +223,7 @@ async function startServer() {
 
   expressApp.get('/api/auth/google/status', async (req, res) => {
     try {
-      if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+      if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON || (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY)) {
         return res.json({ connected: true, method: 'service_account' });
       }
       const client = await getDriveClient();
