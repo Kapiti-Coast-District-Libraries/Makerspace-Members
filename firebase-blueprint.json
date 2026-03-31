@@ -114,6 +114,16 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "userName", "fileName", "status", "createdAt"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Global application configuration, such as Google Drive tokens",
+      "type": "object",
+      "properties": {
+        "tokens": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tokens", "updatedAt"]
     }
   },
   "firestore": {
@@ -148,6 +158,10 @@
     "print_jobs/{jobId}": {
       "schema": { "$ref": "#/entities/PrintJob" },
       "description": "Print jobs collection"
+    },
+    "app_config/{configId}": {
+      "schema": { "$ref": "#/entities/AppConfig" },
+      "description": "Application configuration collection"
     }
   }
 }

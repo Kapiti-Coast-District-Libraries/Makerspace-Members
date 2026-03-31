@@ -1,8 +1,76 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDocs, where, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDocs, where, addDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database, Settings, Plus, Trash2, Calendar, Box, UploadCloud, PlayCircle, Download } from 'lucide-react';
+import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database, Settings, Plus, Trash2, Calendar, Box, UploadCloud, PlayCircle, Download, AlertCircle, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+
+// Custom Confirmation Modal
+interface ConfirmModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  isDestructive?: boolean;
+  isLoading?: boolean;
+}
+
+function ConfirmModal({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  title, 
+  message, 
+  confirmText = 'Delete', 
+  cancelText = 'Cancel',
+  isDestructive = true,
+  isLoading = false
+}: ConfirmModalProps) {
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-stone-200"
+        >
+          <div className="flex items-center space-x-3 mb-4 text-rose-600">
+            <AlertCircle size={28} />
+            <h3 className="text-2xl font-bold text-stone-900">{title}</h3>
+          </div>
+          <p className="text-stone-600 mb-8 leading-relaxed">
+            {message}
+          </p>
+          <div className="flex space-x-3 justify-end">
+            <button
+              onClick={onClose}
+              disabled={isLoading}
+              className="px-6 py-2.5 rounded-xl font-medium text-stone-600 hover:bg-stone-100 transition-colors disabled:opacity-50"
+            >
+              {cancelText}
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={isLoading}
+              className={`px-6 py-2.5 rounded-xl font-medium text-white transition-all flex items-center ${
+                isDestructive ? 'bg-rose-600 hover:bg-rose-700 shadow-lg shadow-rose-200' : 'bg-stone-900 hover:bg-stone-800 shadow-lg shadow-stone-200'
+              } disabled:opacity-50`}
+            >
+              {isLoading && <Loader2 size={18} className="mr-2 animate-spin" />}
+              {confirmText}
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+}
 
 export function AdminDashboard() {
   const { user, userRole } = useAuth();
@@ -17,6 +85,24 @@ export function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [seedMessage, setSeedMessage] = useState('');
+
+  // Selection state for print jobs
+  const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
+
+  // Modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    isLoading: boolean;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    isLoading: false
+  });
 
   // Equipment form state
   const [isAddingEquipment, setIsAddingEquipment] = useState(false);
@@ -170,13 +256,66 @@ export function AdminDashboard() {
     }
   };
 
-  const handleDeletePrintJob = async (job: any) => {
-    if (!window.confirm('Are you sure you want to delete this document?')) return;
-    try {
-      // Delete from Firestore
-      await deleteDoc(doc(db, 'print_jobs', job.id));
-    } catch (err) {
-      console.error('Error deleting print job:', err);
+  const handleDeletePrintJob = (job: any) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Document',
+      message: `Are you sure you want to delete "${job.fileName}"? This action cannot be undone.`,
+      isLoading: false,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
+        try {
+          await deleteDoc(doc(db, 'print_jobs', job.id));
+          setConfirmModal(prev => ({ ...prev, isOpen: false, isLoading: false }));
+        } catch (err) {
+          console.error('Error deleting print job:', err);
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+          alert('Failed to delete document. Please check permissions.');
+        }
+      }
+    });
+  };
+
+  const handleBulkDeletePrintJobs = () => {
+    if (selectedJobs.length === 0) return;
+    
+    setConfirmModal({
+      isOpen: true,
+      title: 'Bulk Delete',
+      message: `Are you sure you want to delete ${selectedJobs.length} selected documents? This action cannot be undone.`,
+      isLoading: false,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
+        try {
+          const batch = writeBatch(db);
+          selectedJobs.forEach(id => {
+            batch.delete(doc(db, 'print_jobs', id));
+          });
+          await batch.commit();
+          setSelectedJobs([]);
+          setConfirmModal(prev => ({ ...prev, isOpen: false, isLoading: false }));
+        } catch (err) {
+          console.error('Error bulk deleting print jobs:', err);
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+          alert('Failed to delete documents. Please check permissions.');
+        }
+      }
+    });
+  };
+
+  const toggleJobSelection = (jobId: string) => {
+    setSelectedJobs(prev => 
+      prev.includes(jobId) 
+        ? prev.filter(id => id !== jobId) 
+        : [...prev, jobId]
+    );
+  };
+
+  const toggleAllJobs = () => {
+    if (selectedJobs.length === printJobs.length) {
+      setSelectedJobs([]);
+    } else {
+      setSelectedJobs(printJobs.map(j => j.id));
     }
   };
 
@@ -229,12 +368,24 @@ export function AdminDashboard() {
     }
   };
 
-  const handleDeleteEquipment = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'equipment', id));
-    } catch (err) {
-      console.error('Error deleting equipment:', err);
-    }
+  const handleDeleteEquipment = (id: string) => {
+    const eq = equipment.find(e => e.id === id);
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Equipment',
+      message: `Are you sure you want to delete "${eq?.name || 'this equipment'}"?`,
+      isLoading: false,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
+        try {
+          await deleteDoc(doc(db, 'equipment', id));
+          setConfirmModal(prev => ({ ...prev, isOpen: false, isLoading: false }));
+        } catch (err) {
+          console.error('Error deleting equipment:', err);
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+        }
+      }
+    });
   };
 
   const handleAddEvent = async (e: React.FormEvent) => {
@@ -256,12 +407,24 @@ export function AdminDashboard() {
     }
   };
 
-  const handleDeleteEvent = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'events', id));
-    } catch (err) {
-      console.error('Error deleting event:', err);
-    }
+  const handleDeleteEvent = (id: string) => {
+    const ev = events.find(e => e.id === id);
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Event',
+      message: `Are you sure you want to delete "${ev?.title || 'this event'}"?`,
+      isLoading: false,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
+        try {
+          await deleteDoc(doc(db, 'events', id));
+          setConfirmModal(prev => ({ ...prev, isOpen: false, isLoading: false }));
+        } catch (err) {
+          console.error('Error deleting event:', err);
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+        }
+      }
+    });
   };
 
   const handleAddDesignTool = async (e: React.FormEvent) => {
@@ -289,12 +452,24 @@ export function AdminDashboard() {
     }
   };
 
-  const handleDeleteDesignTool = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'design_tools', id));
-    } catch (err) {
-      console.error('Error deleting design tool:', err);
-    }
+  const handleDeleteDesignTool = (id: string) => {
+    const tool = designTools.find(t => t.id === id);
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Design Tool',
+      message: `Are you sure you want to delete "${tool?.name || 'this tool'}"?`,
+      isLoading: false,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
+        try {
+          await deleteDoc(doc(db, 'design_tools', id));
+          setConfirmModal(prev => ({ ...prev, isOpen: false, isLoading: false }));
+        } catch (err) {
+          console.error('Error deleting design tool:', err);
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+        }
+      }
+    });
   };
 
   const addQuizQuestion = () => {
@@ -964,10 +1139,21 @@ export function AdminDashboard() {
 
         {/* Document Uploads */}
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-200 lg:col-span-2">
-          <h2 className="text-2xl font-semibold mb-6 flex items-center">
-            <UploadCloud className="mr-3 text-stone-400" />
-            Document Uploads
-          </h2>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-semibold flex items-center">
+              <UploadCloud className="mr-3 text-stone-400" />
+              Document Uploads
+            </h2>
+            {selectedJobs.length > 0 && (
+              <button
+                onClick={handleBulkDeletePrintJobs}
+                className="flex items-center text-sm bg-rose-50 text-rose-600 px-4 py-2 rounded-xl hover:bg-rose-100 transition-colors font-medium"
+              >
+                <Trash2 size={18} className="mr-2" />
+                Delete Selected ({selectedJobs.length})
+              </button>
+            )}
+          </div>
           {printJobs.length === 0 ? (
             <p className="text-stone-500 text-center py-4">No documents uploaded yet.</p>
           ) : (
@@ -975,6 +1161,14 @@ export function AdminDashboard() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-stone-200 text-sm text-stone-500">
+                    <th className="pb-3 w-10">
+                      <input 
+                        type="checkbox" 
+                        checked={selectedJobs.length === printJobs.length && printJobs.length > 0}
+                        onChange={toggleAllJobs}
+                        className="rounded border-stone-300 text-stone-900 focus:ring-stone-900"
+                      />
+                    </th>
                     <th className="pb-3 font-medium">User</th>
                     <th className="pb-3 font-medium">Document</th>
                     <th className="pb-3 font-medium">Details</th>
@@ -985,7 +1179,15 @@ export function AdminDashboard() {
                 </thead>
                 <tbody className="text-sm">
                   {printJobs.map(job => (
-                    <tr key={job.id} className="border-b border-stone-100 last:border-0">
+                    <tr key={job.id} className={`border-b border-stone-100 last:border-0 transition-colors ${selectedJobs.includes(job.id) ? 'bg-stone-50' : ''}`}>
+                      <td className="py-4">
+                        <input 
+                          type="checkbox" 
+                          checked={selectedJobs.includes(job.id)}
+                          onChange={() => toggleJobSelection(job.id)}
+                          className="rounded border-stone-300 text-stone-900 focus:ring-stone-900"
+                        />
+                      </td>
                       <td className="py-4 font-medium text-stone-900">{job.userName}</td>
                       <td className="py-4 text-stone-600 max-w-[200px] truncate" title={job.fileName}>{job.fileName}</td>
                       <td className="py-4 text-stone-500">
@@ -1093,6 +1295,15 @@ export function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      <ConfirmModal 
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        isLoading={confirmModal.isLoading}
+      />
     </div>
   );
 }

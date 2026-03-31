@@ -71,6 +71,7 @@ interface PrintJob {
 
 export function MyDocuments() {
   const { user } = useAuth();
+  const isAdmin = user?.email === 'paraparaumumake@gmail.com';
   const [jobs, setJobs] = useState<PrintJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -177,7 +178,11 @@ export function MyDocuments() {
     }
 
     if (!isDriveConnected) {
-      setError('Please connect your Google Drive first.');
+      if (isAdmin) {
+        setError('Please connect your Google Drive first.');
+      } else {
+        setError('Makerspace Google Drive is not connected. Please contact an administrator.');
+      }
       return;
     }
 
@@ -227,6 +232,26 @@ export function MyDocuments() {
       if (!uploadResponse.ok) {
         const errorData = await uploadResponse.json().catch(() => ({ error: 'Unknown server error' }));
         throw new Error(`Upload failed: ${errorData.error}`);
+      }
+
+      const result = await uploadResponse.json();
+
+      // Step 3: Save to Firestore from Client
+      setUploadStep('Finalizing record...');
+      try {
+        await addDoc(collection(db, 'print_jobs'), {
+          userId: user.uid,
+          userName: user.displayName || user.email || 'Anonymous',
+          fileName: file.name,
+          fileUrl: result.fileUrl,
+          driveFileId: result.driveFileId,
+          filamentColor: filamentColor || '',
+          notes: notes || '',
+          status: 'pending',
+          createdAt: serverTimestamp(),
+        });
+      } catch (fsErr) {
+        handleFirestoreError(fsErr, OperationType.CREATE, 'print_jobs');
       }
 
       setSuccess('Document uploaded and saved successfully!');
@@ -299,30 +324,40 @@ export function MyDocuments() {
                   <ExternalLink className="text-stone-400" size={24} />
                 </div>
                 <div>
-                  <h3 className="font-medium text-stone-900">Connect Google Drive</h3>
-                  <p className="text-sm text-stone-500 mt-1">We use your Google Drive to store larger files securely.</p>
+                  <h3 className="font-medium text-stone-900">
+                    {isAdmin ? 'Connect Google Drive' : 'Drive Not Connected'}
+                  </h3>
+                  <p className="text-sm text-stone-500 mt-1">
+                    {isAdmin 
+                      ? 'Connect your Google Drive to store user uploads securely.' 
+                      : 'The Makerspace Google Drive is not connected. Please contact an administrator.'}
+                  </p>
                 </div>
-                <button
-                  onClick={handleConnectDrive}
-                  className="w-full py-2 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-colors font-medium"
-                >
-                  Connect Now
-                </button>
+                {isAdmin && (
+                  <button
+                    onClick={handleConnectDrive}
+                    className="w-full py-2 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-colors font-medium"
+                  >
+                    Connect Now
+                  </button>
+                )}
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between mb-6 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                  <div className="flex items-center text-emerald-700 text-sm font-medium">
-                    <CheckCircle size={16} className="mr-2" />
-                    Google Drive Connected
+                {isAdmin && (
+                  <div className="flex items-center justify-between mb-6 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                    <div className="flex items-center text-emerald-700 text-sm font-medium">
+                      <CheckCircle size={16} className="mr-2" />
+                      Admin Drive Connected
+                    </div>
+                    <button 
+                      onClick={handleDisconnectDrive}
+                      className="text-xs text-stone-400 hover:text-stone-600 underline"
+                    >
+                      Disconnect
+                    </button>
                   </div>
-                  <button 
-                    onClick={handleDisconnectDrive}
-                    className="text-xs text-stone-400 hover:text-stone-600 underline"
-                  >
-                    Disconnect
-                  </button>
-                </div>
+                )}
 
                 {error && (
                   <div className="mb-6 p-4 bg-rose-50 text-rose-700 rounded-xl text-sm flex items-start">
