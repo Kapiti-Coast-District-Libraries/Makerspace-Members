@@ -1,5 +1,4 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import multer from 'multer';
 import fs from 'fs';
@@ -7,8 +6,9 @@ import os from 'os';
 import { google } from 'googleapis';
 import cookieSession from 'cookie-session';
 import dotenv from 'dotenv';
-import { initializeApp, cert, getApps, applicationDefault } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+// Dynamic imports for firebase-admin to avoid top-level issues on Vercel
+// import { initializeApp, cert, getApps, applicationDefault } from 'firebase-admin/app';
+// import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 dotenv.config();
 
@@ -35,43 +35,62 @@ try {
   console.error('Server: Failed to read firebase-applet-config.json:', err);
 }
 
-// Initialize Firebase Admin SDK
-let firestore: any;
-try {
-  if (!getApps().length) {
-    console.log('Server: Initializing Firebase Admin...');
-    const serviceAccountStr = process.env.FIREBASE_SERVICE_ACCOUNT;
-    let serviceAccount: any = undefined;
-    
-    if (serviceAccountStr) {
-      try {
-        serviceAccount = JSON.parse(serviceAccountStr);
-        console.log('Server: Found FIREBASE_SERVICE_ACCOUNT env var.');
-      } catch (e) {
-        console.error('Server: Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:', e);
+// Global variables for lazy initialization
+let firestore: any = null;
+let firebaseAdminApp: any = null;
+
+const getFirestoreInstance = async () => {
+  if (firestore) return firestore;
+
+  try {
+    const { getApps, initializeApp, cert, applicationDefault } = await import('firebase-admin/app');
+    const { getFirestore } = await import('firebase-admin/firestore');
+
+    if (!getApps().length) {
+      console.log('Server: Initializing Firebase Admin...');
+      const serviceAccountStr = process.env.FIREBASE_SERVICE_ACCOUNT;
+      let serviceAccount: any = undefined;
+      
+      if (serviceAccountStr) {
+        try {
+          serviceAccount = JSON.parse(serviceAccountStr);
+          console.log('Server: Found FIREBASE_SERVICE_ACCOUNT env var.');
+        } catch (e) {
+          console.error('Server: Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:', e);
+        }
+      } else {
+        console.warn('Server: FIREBASE_SERVICE_ACCOUNT not found, falling back to applicationDefault()');
       }
+
+      const projectId = firebaseConfig.projectId || process.env.GOOGLE_CLOUD_PROJECT;
+      console.log(`Server: Project ID: ${projectId || 'unknown'}`);
+
+      if (!projectId && !serviceAccount) {
+        throw new Error('Missing Project ID and Service Account. Firebase Admin cannot be initialized.');
+      }
+
+      firebaseAdminApp = initializeApp({
+        credential: serviceAccount ? cert(serviceAccount) : applicationDefault(),
+        projectId: projectId
+      });
+      console.log('Server: Firebase Admin initialized successfully.');
     } else {
-      console.warn('Server: FIREBASE_SERVICE_ACCOUNT not found, falling back to applicationDefault()');
+      firebaseAdminApp = getApps()[0];
     }
-
-    const projectId = firebaseConfig.projectId || process.env.GOOGLE_CLOUD_PROJECT;
-    console.log(`Server: Project ID: ${projectId || 'unknown'}`);
-
-    initializeApp({
-      credential: serviceAccount ? cert(serviceAccount) : applicationDefault(),
-      projectId: projectId
-    });
-    console.log('Server: Firebase Admin initialized successfully.');
+    
+    firestore = getFirestore(firebaseConfig.firestoreDatabaseId);
+    console.log(`Server: Firestore initialized with database ID: ${firebaseConfig.firestoreDatabaseId || '(default)'}`);
+    return firestore;
+  } catch (err: any) {
+    console.error('Server: Failed to initialize Firebase Admin or Firestore:', err.message);
+    return null;
   }
-  firestore = getFirestore(firebaseConfig.firestoreDatabaseId);
-  console.log(`Server: Firestore initialized with database ID: ${firebaseConfig.firestoreDatabaseId || '(default)'}`);
-} catch (err) {
-  console.error('Server: Failed to initialize Firebase Admin or Firestore:', err);
-}
+};
 
-const getConfigCollection = () => {
-  if (!firestore) return null;
-  return firestore.collection('server_config');
+const getConfigCollection = async () => {
+  const db = await getFirestoreInstance();
+  if (!db) return null;
+  return db.collection('server_config');
 };
 
 const upload = multer({
@@ -104,7 +123,7 @@ export const expressApp = express();
 // Helper to get config from Firestore
 const getConfig = async (key: string) => {
   try {
-    const collection = getConfigCollection();
+    const collection = await getConfigCollection();
     if (!collection) return null;
     const doc = await collection.doc(key).get();
     return doc.exists ? doc.data() : null;
@@ -117,8 +136,11 @@ const getConfig = async (key: string) => {
 // Helper to set config in Firestore
 const setConfig = async (key: string, value: any) => {
   try {
-    const collection = getConfigCollection();
+    const collection = await getConfigCollection();
     if (!collection) return;
+    
+    const { FieldValue } = await import('firebase-admin/firestore');
+    
     await collection.doc(key).set({
       ...value,
       updated_at: FieldValue.serverTimestamp()
@@ -131,7 +153,7 @@ const setConfig = async (key: string, value: any) => {
 // Helper to delete config from Firestore
 const deleteConfig = async (key: string) => {
   try {
-    const collection = getConfigCollection();
+    const collection = await getConfigCollection();
     if (!collection) return;
     await collection.doc(key).delete();
   } catch (err) {
@@ -398,6 +420,7 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -476,3 +499,5 @@ if (!process.env.VERCEL) {
 } else {
   console.log('Server: Running in Vercel environment, skipping startServer()');
 }
+
+console.log('Server: Module loading complete.');
