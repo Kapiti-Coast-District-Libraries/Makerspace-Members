@@ -3,25 +3,32 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import multer from 'multer';
 import fs from 'fs';
+import os from 'os';
 import { google } from 'googleapis';
 import cookieSession from 'cookie-session';
 import dotenv from 'dotenv';
-import Database from 'better-sqlite3';
+import { initializeApp, cert, getApps, applicationDefault } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 dotenv.config();
 
-// Initialize SQLite for server-side config (tokens)
-const dbPath = path.join(process.cwd(), 'server_config.db');
-const sqlite = new Database(dbPath);
+// Import the Firebase configuration for project ID and database ID
+const firebaseConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf-8'));
 
-// Create tables if they don't exist
-sqlite.exec(`
-  CREATE TABLE IF NOT EXISTS app_config (
-    key TEXT PRIMARY KEY,
-    value TEXT,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+// Initialize Firebase Admin SDK
+if (!getApps().length) {
+  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT 
+    ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) 
+    : undefined;
+
+  initializeApp({
+    credential: serviceAccount ? cert(serviceAccount) : applicationDefault(),
+    projectId: firebaseConfig.projectId
+  });
+}
+
+const firestore = getFirestore(firebaseConfig.firestoreDatabaseId);
+const configCollection = firestore.collection('server_config');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -39,8 +46,9 @@ const oauth2Client = new google.auth.OAuth2(
   (process.env.APP_URL ? `${process.env.APP_URL}/api/auth/google/callback` : 'http://localhost:3000/api/auth/google/callback')
 );
 
+export const expressApp = express();
+
 async function startServer() {
-  const expressApp = express();
   const PORT = 3000;
 
   expressApp.use(express.json());
@@ -53,21 +61,36 @@ async function startServer() {
   }));
 
   // Google OAuth Routes
-  // Helper to get config from SQLite
-  const getConfig = (key: string) => {
-    const row = sqlite.prepare('SELECT value FROM app_config WHERE key = ?').get(key) as { value: string } | undefined;
-    return row ? JSON.parse(row.value) : null;
+  // Helper to get config from Firestore
+  const getConfig = async (key: string) => {
+    try {
+      const doc = await configCollection.doc(key).get();
+      return doc.exists ? doc.data() : null;
+    } catch (err) {
+      console.error('Error getting config from Firestore:', err);
+      return null;
+    }
   };
 
-  // Helper to set config in SQLite
-  const setConfig = (key: string, value: any) => {
-    sqlite.prepare('INSERT OR REPLACE INTO app_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
-      .run(key, JSON.stringify(value));
+  // Helper to set config in Firestore
+  const setConfig = async (key: string, value: any) => {
+    try {
+      await configCollection.doc(key).set({
+        ...value,
+        updated_at: FieldValue.serverTimestamp()
+      });
+    } catch (err) {
+      console.error('Error setting config in Firestore:', err);
+    }
   };
 
-  // Helper to delete config from SQLite
-  const deleteConfig = (key: string) => {
-    sqlite.prepare('DELETE FROM app_config WHERE key = ?').run(key);
+  // Helper to delete config from Firestore
+  const deleteConfig = async (key: string) => {
+    try {
+      await configCollection.doc(key).delete();
+    } catch (err) {
+      console.error('Error deleting config from Firestore:', err);
+    }
   };
 
   expressApp.get('/api/auth/google/url', (req, res) => {
@@ -106,9 +129,9 @@ async function startServer() {
         return res.status(403).send(`Unauthorized: Only the Makerspace Admin (${ADMIN_EMAIL}) can connect their Google Drive. You are logged in as ${userInfo.data.email}.`);
       }
 
-      // Store tokens in SQLite
-      console.log('Server: Storing tokens in SQLite...');
-      setConfig('google_drive_admin', { tokens, email: userInfo.data.email });
+      // Store tokens in Firestore
+      console.log('Server: Storing tokens in Firestore...');
+      await setConfig('google_drive_admin', { tokens, email: userInfo.data.email });
 
       res.send(`
         <html>
@@ -134,7 +157,7 @@ async function startServer() {
 
   expressApp.get('/api/auth/google/status', async (req, res) => {
     try {
-      const config = getConfig('google_drive_admin');
+      const config = await getConfig('google_drive_admin');
       res.json({ connected: !!config && !!config.tokens });
     } catch (error) {
       res.json({ connected: false });
@@ -143,7 +166,7 @@ async function startServer() {
 
   expressApp.post('/api/auth/google/logout', async (req, res) => {
     try {
-      deleteConfig('google_drive_admin');
+      await deleteConfig('google_drive_admin');
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to disconnect' });
@@ -156,8 +179,8 @@ async function startServer() {
       const file = req.file;
       const { userId, userName } = req.body;
       
-      // Fetch Admin tokens from SQLite
-      const config = getConfig('google_drive_admin');
+      // Fetch Admin tokens from Firestore
+      const config = await getConfig('google_drive_admin');
       const tokens = config?.tokens;
 
       if (!file) {
@@ -177,10 +200,10 @@ async function startServer() {
       oauth2Client.setCredentials(tokens);
       
       // Handle token refresh if needed
-      oauth2Client.on('tokens', (newTokens) => {
+      oauth2Client.on('tokens', async (newTokens) => {
         if (newTokens.refresh_token) {
-          // Store new tokens in SQLite
-          setConfig('google_drive_admin', { 
+          // Store new tokens in Firestore
+          await setConfig('google_drive_admin', { 
             ...config, 
             tokens: { ...tokens, ...newTokens } 
           });
@@ -217,7 +240,8 @@ async function startServer() {
       };
 
       // Multer memory storage doesn't have a path, so we write to a temp file briefly
-      const tempPath = path.join(process.cwd(), 'temp_' + Date.now() + '_' + file.originalname);
+      const tempDir = os.tmpdir();
+      const tempPath = path.join(tempDir, 'temp_' + Date.now() + '_' + file.originalname);
       fs.writeFileSync(tempPath, file.buffer);
 
       const driveFile = await drive.files.create({
