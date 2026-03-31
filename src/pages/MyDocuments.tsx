@@ -143,11 +143,15 @@ export function MyDocuments() {
     authWindow.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px;">Loading authentication...</p>');
 
     try {
-      console.log('MyDocuments: Fetching Google Auth URL...');
-      const response = await fetch('/api/auth/google/url');
+      const fetchUrl = '/api/auth/google/url';
+      console.log(`MyDocuments: Fetching Google Auth URL from: ${fetchUrl}`);
+      const response = await fetch(fetchUrl);
+      console.log(`MyDocuments: Response status: ${response.status} ${response.statusText}`);
+      
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({ error: 'Failed to fetch' }));
-        throw new Error(errData.error || 'Failed to fetch auth URL');
+        const errData = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
+        console.error('MyDocuments: Auth URL fetch failed:', errData);
+        throw new Error(errData.error || `Server error: ${response.status}`);
       }
       
       const { url } = await response.json();
@@ -156,7 +160,7 @@ export function MyDocuments() {
     } catch (err: any) {
       console.error('MyDocuments: Error starting OAuth:', err);
       authWindow.close();
-      setError('Failed to start Google Drive connection: ' + (err.message || 'Unknown error'));
+      setError('Failed to start Google Drive connection: ' + (err.message || 'Network error or server unreachable'));
     }
   };
 
