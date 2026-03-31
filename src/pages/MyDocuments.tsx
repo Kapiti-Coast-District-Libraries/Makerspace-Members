@@ -148,13 +148,27 @@ export function MyDocuments() {
       const response = await fetch(fetchUrl);
       console.log(`MyDocuments: Response status: ${response.status} ${response.statusText}`);
       
+      const responseText = await response.text();
+      
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
-        console.error('MyDocuments: Auth URL fetch failed:', errData);
+        console.error('MyDocuments: Auth URL fetch failed. Status:', response.status, 'Body:', responseText);
+        let errData;
+        try {
+          errData = JSON.parse(responseText);
+        } catch (e) {
+          errData = { error: 'Non-JSON error response', details: responseText.substring(0, 300) };
+        }
         throw new Error(errData.error || `Server error: ${response.status}`);
       }
       
-      const { url } = await response.json();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error('Failed to parse successful response as JSON');
+      }
+
+      const { url } = data;
       console.log('MyDocuments: Redirecting popup to:', url);
       authWindow.location.href = url;
     } catch (err: any) {

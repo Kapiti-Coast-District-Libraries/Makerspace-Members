@@ -12,6 +12,8 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 dotenv.config();
 
+console.log('Server: Module loading...');
+
 const getAppUrl = () => {
   if (process.env.APP_URL) return process.env.APP_URL;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
@@ -81,11 +83,18 @@ const upload = multer({
 
 const ADMIN_EMAIL = 'paraparaumumake@gmail.com';
 
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI || `${APP_URL}/api/auth/google/callback`
-);
+const getOAuth2Client = () => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${APP_URL}/api/auth/google/callback`;
+  
+  if (!clientId || !clientSecret) {
+    throw new Error('Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET');
+  }
+  
+  console.log(`Server: Creating OAuth2 client with Redirect URI: ${redirectUri}`);
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+};
 
 // Initialize Google Drive client cache
 let driveClient: any = null;
@@ -149,12 +158,9 @@ expressApp.use((err: any, req: any, res: any, next: any) => {
 expressApp.get('/api/auth/google/url', (req, res) => {
   try {
     console.log('Server: /api/auth/google/url requested');
-    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-      console.error('Server: Missing Google OAuth credentials.');
-      return res.status(500).json({ error: 'Server missing Google OAuth credentials' });
-    }
+    const client = getOAuth2Client();
 
-    const url = oauth2Client.generateAuthUrl({
+    const url = client.generateAuthUrl({
       access_type: 'offline',
       scope: [
         'https://www.googleapis.com/auth/drive.file',
@@ -171,20 +177,39 @@ expressApp.get('/api/auth/google/url', (req, res) => {
 });
 
 expressApp.get('/api/auth/google/callback', async (req, res) => {
-  const { code } = req.query;
-  
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    console.error('Server: Missing Google OAuth credentials in environment variables.');
-    return res.status(500).send('Authentication failed: Server is missing Google OAuth credentials.');
+  const { code, error } = req.query;
+  console.log('Server: /api/auth/google/callback hit', { hasCode: !!code, error });
+
+  if (error) {
+    console.error('Server: Google OAuth error:', error);
+    return res.send(`
+      <html>
+        <body style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #fef2f2;">
+          <h1 style="color: #dc2626;">Authentication Failed</h1>
+          <p>${error}</p>
+          <p>Closing in <span id="timer">10</span> seconds...</p>
+          <script>
+            let count = 10;
+            const timer = document.getElementById('timer');
+            setInterval(() => {
+              count--;
+              timer.innerText = count;
+              if (count <= 0) window.close();
+            }, 1000);
+          </script>
+        </body>
+      </html>
+    `);
   }
 
   try {
-    console.log('Server: Received OAuth code, exchanging for tokens...');
-    const { tokens } = await oauth2Client.getToken(code as string);
+    const client = getOAuth2Client();
+    console.log('Server: Exchanging code for tokens...');
+    const { tokens } = await client.getToken(code as string);
     
     console.log('Server: Tokens received, fetching user info...');
-    oauth2Client.setCredentials(tokens);
-    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    client.setCredentials(tokens);
+    const oauth2 = google.oauth2({ version: 'v2', auth: client });
     const userInfo = await oauth2.userinfo.get();
 
     console.log(`Server: Authenticated as ${userInfo.data.email}`);
@@ -197,65 +222,34 @@ expressApp.get('/api/auth/google/callback', async (req, res) => {
     // Store tokens in Firestore
     console.log('Server: Storing tokens in Firestore...');
     await setConfig('google_drive_admin', { tokens, email: userInfo.data.email });
+    
+    driveClient = google.drive({ version: 'v3', auth: client });
+    console.log('Server: Drive client updated with new tokens');
 
     res.send(`
       <html>
-        <head>
-          <title>Authentication Successful</title>
-          <style>
-            body { font-family: sans-serif; text-align: center; padding: 50px; background: #f5f5f4; color: #1c1917; }
-            .card { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); display: inline-block; max-width: 400px; }
-            .icon { font-size: 48px; margin-bottom: 20px; }
-            h1 { margin: 0 0 10px 0; font-size: 24px; }
-            p { color: #57534e; margin: 0; }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <div class="icon">✅</div>
-            <h1>Authentication Successful</h1>
-            <p>Your Google Drive is now connected. This window will close in 3 seconds.</p>
-          </div>
+        <body style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f0fdf4;">
+          <h1 style="color: #16a34a;">Success!</h1>
+          <p>Google Drive connected successfully.</p>
+          <p>Closing in <span id="timer">5</span> seconds...</p>
           <script>
             if (window.opener) {
               window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-              setTimeout(() => {
-                window.close();
-              }, 3000);
-            } else {
-              setTimeout(() => {
-                window.location.href = '/documents';
-              }, 3000);
             }
+            let count = 5;
+            const timer = document.getElementById('timer');
+            setInterval(() => {
+              count--;
+              timer.innerText = count;
+              if (count <= 0) window.close();
+            }, 1000);
           </script>
         </body>
       </html>
     `);
-  } catch (error: any) {
-    console.error('Google Auth Error:', error);
-    const errorMessage = error.response?.data?.error_description || error.message || 'Unknown error';
-    res.status(500).send(`
-      <html>
-        <head>
-          <title>Authentication Failed</title>
-          <style>
-            body { font-family: sans-serif; text-align: center; padding: 50px; background: #fef2f2; color: #991b1b; }
-            .card { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); display: inline-block; max-width: 400px; }
-            .icon { font-size: 48px; margin-bottom: 20px; }
-            h1 { margin: 0 0 10px 0; font-size: 24px; }
-            p { color: #b91c1c; margin: 0; }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <div class="icon">❌</div>
-            <h1>Authentication Failed</h1>
-            <p>${errorMessage}</p>
-            <button onclick="window.close()" style="margin-top: 20px; padding: 10px 20px; border-radius: 12px; border: none; background: #991b1b; color: white; cursor: pointer;">Close Window</button>
-          </div>
-        </body>
-      </html>
-    `);
+  } catch (err: any) {
+    console.error('Server: OAuth Callback Error:', err);
+    res.status(500).send('Authentication failed: ' + err.message);
   }
 });
 
@@ -453,15 +447,19 @@ const getDriveClient = async () => {
   }
 
   // Option 2: OAuth2 (Fallback)
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    return null;
-  }
-
   try {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    
+    if (!clientId || !clientSecret) {
+      return null;
+    }
+
     const config = await getConfig('google_drive_admin');
     if (config && config.tokens) {
-      oauth2Client.setCredentials(config.tokens);
-      driveClient = google.drive({ version: 'v3', auth: oauth2Client });
+      const client = getOAuth2Client();
+      client.setCredentials(config.tokens);
+      driveClient = google.drive({ version: 'v3', auth: client });
       return driveClient;
     }
   } catch (err) {
@@ -471,6 +469,10 @@ const getDriveClient = async () => {
   return null;
 };
 
-startServer().catch(err => {
-  console.error('Failed to start server:', err);
-});
+if (!process.env.VERCEL) {
+  startServer().catch(err => {
+    console.error('Failed to start server:', err);
+  });
+} else {
+  console.log('Server: Running in Vercel environment, skipping startServer()');
+}
