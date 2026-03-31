@@ -84,6 +84,7 @@ export function MyDocuments() {
   const [notes, setNotes] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDriveConnected, setIsDriveConnected] = useState(false);
+  const [connectionMethod, setConnectionMethod] = useState<'none' | 'oauth' | 'service_account'>('none');
   const [checkingDrive, setCheckingDrive] = useState(true);
 
   useEffect(() => {
@@ -93,7 +94,11 @@ export function MyDocuments() {
     const handleMessage = (event: MessageEvent) => {
       // Validate origin is from AI Studio preview or localhost
       const origin = event.origin;
-      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
+      const isAllowedOrigin = origin.endsWith('.run.app') || 
+                             origin.endsWith('.vercel.app') || 
+                             origin.includes('localhost');
+                             
+      if (!isAllowedOrigin) {
         return;
       }
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
@@ -111,6 +116,7 @@ export function MyDocuments() {
       const response = await fetch('/api/auth/google/status');
       const data = await response.json();
       setIsDriveConnected(data.connected);
+      setConnectionMethod(data.method || 'none');
     } catch (err) {
       console.error('Error checking drive status:', err);
     } finally {
@@ -377,14 +383,16 @@ export function MyDocuments() {
                   <div className="flex items-center justify-between mb-6 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
                     <div className="flex items-center text-emerald-700 text-sm font-medium">
                       <CheckCircle size={16} className="mr-2" />
-                      Admin Drive Connected
+                      {connectionMethod === 'service_account' ? 'Admin Drive Hard-wired' : 'Admin Drive Connected'}
                     </div>
-                    <button 
-                      onClick={handleDisconnectDrive}
-                      className="text-xs text-stone-400 hover:text-stone-600 underline"
-                    >
-                      Disconnect
-                    </button>
+                    {connectionMethod === 'oauth' && (
+                      <button 
+                        onClick={handleDisconnectDrive}
+                        className="text-xs text-stone-400 hover:text-stone-600 underline"
+                      >
+                        Disconnect
+                      </button>
+                    )}
                   </div>
                 )}
 

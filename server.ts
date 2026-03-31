@@ -46,6 +46,9 @@ const oauth2Client = new google.auth.OAuth2(
   (process.env.APP_URL ? `${process.env.APP_URL}/api/auth/google/callback` : 'http://localhost:3000/api/auth/google/callback')
 );
 
+// Initialize Google Drive client cache
+let driveClient: any = null;
+
 export const expressApp = express();
 
 async function startServer() {
@@ -91,6 +94,44 @@ async function startServer() {
     } catch (err) {
       console.error('Error deleting config from Firestore:', err);
     }
+  };
+
+  const getDriveClient = async () => {
+    if (driveClient) return driveClient;
+
+    // Option 1: Hard-wired Service Account (Preferred for production)
+    if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+      try {
+        console.log('Server: Initializing Drive with Service Account...');
+        const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+        const auth = new google.auth.GoogleAuth({
+          credentials,
+          scopes: ['https://www.googleapis.com/auth/drive.file'],
+        });
+        driveClient = google.drive({ version: 'v3', auth });
+        return driveClient;
+      } catch (err) {
+        console.error('Server: Failed to initialize Service Account Drive client:', err);
+      }
+    }
+
+    // Option 2: OAuth2 (Fallback)
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+      return null;
+    }
+
+    try {
+      const config = await getConfig('google_drive_admin');
+      if (config && config.tokens) {
+        oauth2Client.setCredentials(config.tokens);
+        driveClient = google.drive({ version: 'v3', auth: oauth2Client });
+        return driveClient;
+      }
+    } catch (err) {
+      console.error('Server: Failed to load OAuth tokens:', err);
+    }
+
+    return null;
   };
 
   expressApp.get('/api/auth/google/url', (req, res) => {
@@ -168,8 +209,11 @@ async function startServer() {
 
   expressApp.get('/api/auth/google/status', async (req, res) => {
     try {
-      const config = await getConfig('google_drive_admin');
-      res.json({ connected: !!config && !!config.tokens });
+      if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+        return res.json({ connected: true, method: 'service_account' });
+      }
+      const client = await getDriveClient();
+      res.json({ connected: !!client, method: client ? 'oauth' : 'none' });
     } catch (error) {
       res.json({ connected: false });
     }
@@ -178,6 +222,7 @@ async function startServer() {
   expressApp.post('/api/auth/google/logout', async (req, res) => {
     try {
       await deleteConfig('google_drive_admin');
+      driveClient = null; // Clear cache
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to disconnect' });
@@ -190,9 +235,7 @@ async function startServer() {
       const file = req.file;
       const { userId, userName } = req.body;
       
-      // Fetch Admin tokens from Firestore
-      const config = await getConfig('google_drive_admin');
-      const tokens = config?.tokens;
+      const drive = await getDriveClient();
 
       if (!file) {
         return res.status(400).json({ error: 'No file uploaded' });
@@ -202,46 +245,34 @@ async function startServer() {
         return res.status(400).json({ error: 'Missing userId' });
       }
 
-      if (!tokens) {
+      if (!drive) {
         return res.status(401).json({ error: 'Makerspace Google Drive not connected. Please contact an administrator.' });
       }
 
       console.log(`Server: Uploading file ${file.originalname} to Admin Google Drive for user ${userId}`);
 
-      oauth2Client.setCredentials(tokens);
-      
-      // Handle token refresh if needed
-      oauth2Client.on('tokens', async (newTokens) => {
-        if (newTokens.refresh_token) {
-          // Store new tokens in Firestore
-          await setConfig('google_drive_admin', { 
-            ...config, 
-            tokens: { ...tokens, ...newTokens } 
-          });
-        }
-      });
-
-      const drive = google.drive({ version: 'v3', auth: oauth2Client });
-
       // 1. Check if "Makerspace Uploads" folder exists, or create it
-      let folderId = '';
-      const folderResponse = await drive.files.list({
-        q: "name = 'Makerspace Uploads' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-        fields: 'files(id)',
-      });
-
-      if (folderResponse.data.files && folderResponse.data.files.length > 0) {
-        folderId = folderResponse.data.files[0].id!;
-      } else {
-        const folderMetadata = {
-          name: 'Makerspace Uploads',
-          mimeType: 'application/vnd.google-apps.folder',
-        };
-        const folder = await drive.files.create({
-          requestBody: folderMetadata,
-          fields: 'id',
+      let folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
+      
+      if (!folderId) {
+        const folderResponse = await drive.files.list({
+          q: "name = 'Makerspace Uploads' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+          fields: 'files(id)',
         });
-        folderId = folder.data.id!;
+
+        if (folderResponse.data.files && folderResponse.data.files.length > 0) {
+          folderId = folderResponse.data.files[0].id!;
+        } else {
+          const folderMetadata = {
+            name: 'Makerspace Uploads',
+            mimeType: 'application/vnd.google-apps.folder',
+          };
+          const folder = await drive.files.create({
+            requestBody: folderMetadata,
+            fields: 'id',
+          });
+          folderId = folder.data.id!;
+        }
       }
 
       // 2. Upload file to the folder
