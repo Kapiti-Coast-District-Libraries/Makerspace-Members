@@ -94,13 +94,15 @@ export function MyDocuments() {
     checkDriveStatus();
     
     const handleMessage = (event: MessageEvent) => {
-      // Validate origin is from AI Studio preview or localhost
+      // Validate origin is from AI Studio preview, localhost, or the current origin
       const origin = event.origin;
       const isAllowedOrigin = origin.endsWith('.run.app') || 
                              origin.endsWith('.vercel.app') || 
-                             origin.includes('localhost');
+                             origin.includes('localhost') ||
+                             origin === window.location.origin;
                              
       if (!isAllowedOrigin) {
+        console.warn('MyDocuments: Ignored message from unauthorized origin:', origin);
         return;
       }
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {

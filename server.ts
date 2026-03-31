@@ -124,16 +124,24 @@ async function startServer() {
     // Option 1: Hard-wired Service Account (Preferred for production)
     if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
       try {
-        console.log('Server: Initializing Drive with Service Account...');
-        const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+        console.log('Server: Found GOOGLE_SERVICE_ACCOUNT_JSON. Attempting to parse...');
+        const jsonStr = process.env.GOOGLE_SERVICE_ACCOUNT_JSON.trim();
+        const credentials = JSON.parse(jsonStr);
+        
+        if (!credentials.client_email || !credentials.private_key) {
+          throw new Error('Service Account JSON is missing client_email or private_key');
+        }
+
+        console.log(`Server: Initializing Drive with Service Account: ${credentials.client_email}`);
         const auth = new google.auth.GoogleAuth({
           credentials,
           scopes: ['https://www.googleapis.com/auth/drive.file'],
         });
         driveClient = google.drive({ version: 'v3', auth });
         return driveClient;
-      } catch (err) {
-        console.error('Server: Failed to initialize Service Account Drive client:', err);
+      } catch (err: any) {
+        console.error('Server: Failed to initialize Service Account Drive client:', err.message);
+        console.error('Server: Check your GOOGLE_SERVICE_ACCOUNT_JSON environment variable.');
       }
     }
 
@@ -209,23 +217,62 @@ async function startServer() {
 
       res.send(`
         <html>
+          <head>
+            <title>Authentication Successful</title>
+            <style>
+              body { font-family: sans-serif; text-align: center; padding: 50px; background: #f5f5f4; color: #1c1917; }
+              .card { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); display: inline-block; max-width: 400px; }
+              .icon { font-size: 48px; margin-bottom: 20px; }
+              h1 { margin: 0 0 10px 0; font-size: 24px; }
+              p { color: #57534e; margin: 0; }
+            </style>
+          </head>
           <body>
+            <div class="card">
+              <div class="icon">✅</div>
+              <h1>Authentication Successful</h1>
+              <p>Your Google Drive is now connected. This window will close in 3 seconds.</p>
+            </div>
             <script>
               if (window.opener) {
                 window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-                window.close();
+                setTimeout(() => {
+                  window.close();
+                }, 3000);
               } else {
-                window.location.href = '/';
+                setTimeout(() => {
+                  window.location.href = '/documents';
+                }, 3000);
               }
             </script>
-            <p>Authentication successful. This window should close automatically.</p>
           </body>
         </html>
       `);
     } catch (error: any) {
       console.error('Google Auth Error:', error);
       const errorMessage = error.response?.data?.error_description || error.message || 'Unknown error';
-      res.status(500).send(`Authentication failed: ${errorMessage}`);
+      res.status(500).send(`
+        <html>
+          <head>
+            <title>Authentication Failed</title>
+            <style>
+              body { font-family: sans-serif; text-align: center; padding: 50px; background: #fef2f2; color: #991b1b; }
+              .card { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); display: inline-block; max-width: 400px; }
+              .icon { font-size: 48px; margin-bottom: 20px; }
+              h1 { margin: 0 0 10px 0; font-size: 24px; }
+              p { color: #b91c1c; margin: 0; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <div class="icon">❌</div>
+              <h1>Authentication Failed</h1>
+              <p>${errorMessage}</p>
+              <button onclick="window.close()" style="margin-top: 20px; padding: 10px 20px; border-radius: 12px; border: none; background: #991b1b; color: white; cursor: pointer;">Close Window</button>
+            </div>
+          </body>
+        </html>
+      `);
     }
   });
 
