@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDocs, where, addDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database, Settings, Plus, Trash2, Calendar, Box, UploadCloud, PlayCircle, Download, AlertCircle, Loader2 } from 'lucide-react';
+import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database, Settings, Plus, Trash2, Calendar, Box, UploadCloud, PlayCircle, Download, AlertCircle, Loader2, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Custom Confirmation Modal
@@ -72,6 +72,84 @@ function ConfirmModal({
   );
 }
 
+function ImageUpload({ onUpload }: { onUpload: (url: string) => void }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+
+  const resizeImage = (file: File, maxWidth: number, maxHeight: number): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Failed to get canvas context'));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          resolve(dataUrl);
+        };
+        img.onerror = reject;
+        img.src = event.target?.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setError('');
+
+    try {
+      // Resize to 800px max and convert to Base64 (same as Project Board)
+      const base64Image = await resizeImage(file, 800, 800);
+      onUpload(base64Image);
+    } catch (err) {
+      console.error('Image processing error:', err);
+      setError('Failed to process image.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center space-x-2">
+        <label className="cursor-pointer flex items-center px-3 py-1.5 bg-stone-100 text-stone-700 rounded-lg hover:bg-stone-200 transition-colors text-xs font-medium">
+          <Camera size={14} className="mr-1.5" />
+          {uploading ? 'Processing...' : 'Upload Photo'}
+          <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} disabled={uploading} />
+        </label>
+        {error && <span className="text-[10px] text-rose-600 font-medium">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function AdminDashboard() {
   const { user, userRole } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
@@ -106,9 +184,11 @@ export function AdminDashboard() {
 
   // Equipment form state
   const [isAddingEquipment, setIsAddingEquipment] = useState(false);
+  const [editingEquipmentId, setEditingEquipmentId] = useState<string | null>(null);
   const [newEquipmentName, setNewEquipmentName] = useState('');
   const [newEquipmentDesc, setNewEquipmentDesc] = useState('');
   const [newQuiz, setNewQuiz] = useState<{question: string, options: string[], answer: number}[]>([]);
+  const [newSlides, setNewSlides] = useState<{title: string, content: string, imageUrl: string}[]>([]);
 
   // Event form state
   const [isAddingEvent, setIsAddingEvent] = useState(false);
@@ -353,19 +433,41 @@ export function AdminDashboard() {
     e.preventDefault();
     if (!user) return;
     try {
-      await addDoc(collection(db, 'equipment'), {
+      const equipmentData = {
         name: newEquipmentName,
         description: newEquipmentDesc,
         quiz: newQuiz,
-        createdAt: serverTimestamp()
-      });
+        slides: newSlides,
+        updatedAt: serverTimestamp()
+      };
+
+      if (editingEquipmentId) {
+        await updateDoc(doc(db, 'equipment', editingEquipmentId), equipmentData);
+      } else {
+        await addDoc(collection(db, 'equipment'), {
+          ...equipmentData,
+          createdAt: serverTimestamp()
+        });
+      }
+
       setNewEquipmentName('');
       setNewEquipmentDesc('');
       setNewQuiz([]);
+      setNewSlides([]);
       setIsAddingEquipment(false);
+      setEditingEquipmentId(null);
     } catch (err) {
-      console.error('Error adding equipment:', err);
+      console.error('Error saving equipment:', err);
     }
+  };
+
+  const handleEditEquipment = (eq: any) => {
+    setEditingEquipmentId(eq.id);
+    setNewEquipmentName(eq.name);
+    setNewEquipmentDesc(eq.description);
+    setNewQuiz(eq.quiz || []);
+    setNewSlides(eq.slides || []);
+    setIsAddingEquipment(true);
   };
 
   const handleDeleteEquipment = (id: string) => {
@@ -476,6 +578,21 @@ export function AdminDashboard() {
     setNewQuiz([...newQuiz, { question: '', options: ['', '', '', ''], answer: 0 }]);
   };
 
+  const addSlide = () => {
+    setNewSlides([...newSlides, { title: '', content: '', imageUrl: '' }]);
+  };
+
+  const updateSlide = (index: number, field: string, value: string) => {
+    const updatedSlides = [...newSlides];
+    (updatedSlides[index] as any)[field] = value;
+    setNewSlides(updatedSlides);
+  };
+
+  const removeSlide = (index: number) => {
+    const updatedSlides = newSlides.filter((_, i) => i !== index);
+    setNewSlides(updatedSlides);
+  };
+
   const updateQuizQuestion = (index: number, field: string, value: any, optionIndex?: number) => {
     const updatedQuiz = [...newQuiz];
     if (field === 'question') {
@@ -559,6 +676,23 @@ export function AdminDashboard() {
         {
           name: 'Laser Cutter',
           description: 'Learn to safely operate the laser cutter, including material selection and emergency stops.',
+          slides: [
+            {
+              title: "Welcome to Laser Cutting",
+              content: "The laser cutter is one of our most versatile tools. It uses a high-powered CO2 laser to cut and engrave materials like wood, acrylic, and leather.",
+              imageUrl: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=800"
+            },
+            {
+              title: "Safety First: Ventilation",
+              content: "NEVER operate the laser without the extraction system running. Fumes from cutting can be toxic and flammable.",
+              imageUrl: "https://images.unsplash.com/photo-1513828583688-c52646db42da?auto=format&fit=crop&q=80&w=800"
+            },
+            {
+              title: "Fire Hazards",
+              content: "Laser cutting involves burning material. Small flames are normal, but you must stay with the machine at all times to watch for flare-ups.",
+              imageUrl: "https://images.unsplash.com/photo-1516733725897-1aa73b87c8e8?auto=format&fit=crop&q=80&w=800"
+            }
+          ],
           quiz: [
             {
               question: "What is the first thing you should do in an emergency?",
@@ -575,6 +709,13 @@ export function AdminDashboard() {
         {
           name: '3D Printer',
           description: 'Understand bed leveling, filament loading, and safe removal of prints.',
+          slides: [
+            {
+              title: "3D Printing Basics",
+              content: "Our FDM printers build objects layer by layer using melted plastic filament.",
+              imageUrl: "https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&q=80&w=800"
+            }
+          ],
           quiz: []
         }
       ];
@@ -820,7 +961,14 @@ export function AdminDashboard() {
             </h2>
             {!isAddingEquipment && (
               <button
-                onClick={() => setIsAddingEquipment(true)}
+                onClick={() => {
+                  setIsAddingEquipment(true);
+                  setEditingEquipmentId(null);
+                  setNewEquipmentName('');
+                  setNewEquipmentDesc('');
+                  setNewQuiz([]);
+                  setNewSlides([]);
+                }}
                 className="flex items-center text-sm bg-stone-100 text-stone-700 px-3 py-2 rounded-xl hover:bg-stone-200 transition-colors"
               >
                 <Plus size={16} className="mr-1" />
@@ -852,6 +1000,75 @@ export function AdminDashboard() {
                   />
                 </div>
                 
+                <div className="pt-4 border-t border-stone-200">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-medium text-stone-900">Induction Slides</h3>
+                    <p className="text-[10px] text-stone-400 max-w-[200px]">Images are stored directly in the database. Keep slides under 10 for best performance.</p>
+                    <button
+                      type="button"
+                      onClick={addSlide}
+                      className="text-sm text-stone-600 hover:text-stone-900 flex items-center"
+                    >
+                      <Plus size={16} className="mr-1" /> Add Slide
+                    </button>
+                  </div>
+                  
+                  {newSlides.map((s, sIndex) => (
+                    <div key={sIndex} className="mb-6 p-4 bg-white rounded-xl border border-stone-200 relative">
+                      <button
+                        type="button"
+                        onClick={() => removeSlide(sIndex)}
+                        className="absolute top-4 right-4 text-stone-400 hover:text-red-600"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                      <div className="space-y-3 pr-8">
+                        <div>
+                          <label className="block text-xs font-medium text-stone-500 mb-1">Slide {sIndex + 1} Title</label>
+                          <input
+                            type="text"
+                            required
+                            value={s.title}
+                            onChange={(e) => updateSlide(sIndex, 'title', e.target.value)}
+                            className="w-full px-3 py-1.5 text-sm rounded-lg border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-stone-500 mb-1">Content</label>
+                          <textarea
+                            required
+                            value={s.content}
+                            onChange={(e) => updateSlide(sIndex, 'content', e.target.value)}
+                            className="w-full px-3 py-1.5 text-sm rounded-lg border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none h-20"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-stone-500 mb-1">Image URL</label>
+                          <div className="flex flex-col space-y-2">
+                            <div className="flex space-x-2">
+                              <input
+                                type="url"
+                                value={s.imageUrl}
+                                onChange={(e) => updateSlide(sIndex, 'imageUrl', e.target.value)}
+                                placeholder="https://..."
+                                className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
+                              />
+                              {s.imageUrl && (
+                                <div className="w-10 h-10 rounded-lg overflow-hidden border border-stone-200 bg-stone-100">
+                                  <img src={s.imageUrl} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                </div>
+                              )}
+                            </div>
+                            <ImageUpload 
+                              onUpload={(url) => updateSlide(sIndex, 'imageUrl', url)} 
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
                 <div className="pt-4 border-t border-stone-200">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="font-medium text-stone-900">Safety Quiz (Optional)</h3>
@@ -911,7 +1128,10 @@ export function AdminDashboard() {
                 <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
-                    onClick={() => setIsAddingEquipment(false)}
+                    onClick={() => {
+                      setIsAddingEquipment(false);
+                      setEditingEquipmentId(null);
+                    }}
                     className="px-4 py-2 text-stone-600 hover:bg-stone-200 rounded-xl transition-colors"
                   >
                     Cancel
@@ -920,7 +1140,7 @@ export function AdminDashboard() {
                     type="submit"
                     className="px-4 py-2 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-colors"
                   >
-                    Save Equipment
+                    {editingEquipmentId ? 'Update Equipment' : 'Save Equipment'}
                   </button>
                 </div>
               </div>
@@ -933,16 +1153,28 @@ export function AdminDashboard() {
             <div className="space-y-4">
               {equipment.map(eq => (
                 <div key={eq.id} className="p-4 bg-stone-50 rounded-2xl relative group">
-                  <button
-                    onClick={() => handleDeleteEquipment(eq.id)}
-                    className="absolute top-4 right-4 p-2 text-stone-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Delete equipment"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                  <h3 className="font-semibold text-stone-900 mb-1 pr-8">{eq.name}</h3>
+                  <div className="absolute top-4 right-4 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => handleEditEquipment(eq)}
+                      className="p-2 text-stone-400 hover:text-stone-900 hover:bg-white rounded-lg transition-colors"
+                      title="Edit equipment"
+                    >
+                      <Settings size={18} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteEquipment(eq.id)}
+                      className="p-2 text-stone-400 hover:text-red-600 hover:bg-white rounded-lg transition-colors"
+                      title="Delete equipment"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                  <h3 className="font-semibold text-stone-900 mb-1 pr-20">{eq.name}</h3>
                   <p className="text-sm text-stone-600 mb-2">{eq.description}</p>
-                  <div className="flex items-center text-xs font-medium text-stone-500">
+                  <div className="flex items-center space-x-2 text-xs font-medium text-stone-500">
+                    <span className="bg-stone-200 px-2 py-1 rounded-md">
+                      {eq.slides?.length || 0} Slides
+                    </span>
                     <span className="bg-stone-200 px-2 py-1 rounded-md">
                       {eq.quiz?.length || 0} Quiz Questions
                     </span>

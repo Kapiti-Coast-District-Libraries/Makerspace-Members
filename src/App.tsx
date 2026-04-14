@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
@@ -37,19 +37,24 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           
-          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+          <Route element={<Layout />}>
+            {/* Publicly Accessible Routes */}
             <Route path="/" element={<Dashboard />} />
-            <Route path="/inductions" element={<Inductions />} />
-            <Route path="/log-usage" element={<LogUsage />} />
-            <Route path="/space-usage" element={<ProtectedRoute requireAdmin><SpaceUsage /></ProtectedRoute>} />
-            <Route path="/feedback" element={<Feedback />} />
-            <Route path="/instructions" element={<Instructions />} />
             <Route path="/projects" element={<ProjectBoard />} />
             <Route path="/design-tools" element={<DesignTools />} />
             <Route path="/design-tools/view/:toolId" element={<ToolShell />} />
-            <Route path="/documents" element={<MyDocuments />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
+            <Route path="/instructions" element={<Instructions />} />
+            <Route path="/feedback" element={<Feedback />} />
+
+            {/* Protected Routes */}
+            <Route element={<ProtectedRoute><Outlet /></ProtectedRoute>}>
+              <Route path="/inductions" element={<Inductions />} />
+              <Route path="/log-usage" element={<LogUsage />} />
+              <Route path="/space-usage" element={<ProtectedRoute requireAdmin><SpaceUsage /></ProtectedRoute>} />
+              <Route path="/documents" element={<MyDocuments />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
+            </Route>
           </Route>
         </Routes>
       </BrowserRouter>

@@ -7,24 +7,32 @@ import { signOut } from 'firebase/auth';
 export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { userRole } = useAuth();
+  const { user, userRole } = useAuth();
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate('/login');
+  const handleAuthAction = async () => {
+    if (user) {
+      await signOut(auth);
+      navigate('/login');
+    } else {
+      navigate('/login');
+    }
   };
 
   const navItems = [
-    { path: '/', label: 'Dashboard', icon: Home },
-    { path: '/inductions', label: 'Inductions', icon: BookOpen },
-    { path: '/instructions', label: 'Manuals', icon: FileText },
-    { path: '/log-usage', label: 'Log Usage', icon: PenTool },
+    { path: '/', label: user ? 'Dashboard' : 'Home', icon: Home },
     { path: '/projects', label: 'Project Board', icon: ImageIcon },
     { path: '/design-tools', label: 'Design Tools', icon: Box },
-    { path: '/documents', label: 'My Documents', icon: UploadCloud },
+    { path: '/instructions', label: 'Manuals', icon: FileText },
     { path: '/feedback', label: 'Feedback', icon: MessageSquare },
-    { path: '/profile', label: 'Profile', icon: User },
   ];
+
+  // Only add these if user is logged in
+  if (user) {
+    navItems.push({ path: '/inductions', label: 'Inductions', icon: BookOpen });
+    navItems.push({ path: '/log-usage', label: 'Log Usage', icon: PenTool });
+    navItems.push({ path: '/documents', label: 'My Documents', icon: UploadCloud });
+    navItems.push({ path: '/profile', label: 'Profile', icon: User });
+  }
 
   if (userRole === 'admin') {
     navItems.push({ path: '/space-usage', label: 'Space Usage', icon: Clock });
@@ -63,11 +71,11 @@ export function Layout() {
 
         <div className="p-4 border-t border-stone-800">
           <button
-            onClick={handleLogout}
+            onClick={handleAuthAction}
             className="flex items-center space-x-3 px-4 py-3 w-full text-left rounded-xl text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
           >
-            <LogOut size={20} />
-            <span className="font-medium">Sign Out</span>
+            <LogOut size={20} className={!user ? 'rotate-180' : ''} />
+            <span className="font-medium">{user ? 'Sign Out' : 'Sign In'}</span>
           </button>
         </div>
       </aside>

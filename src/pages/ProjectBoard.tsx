@@ -181,7 +181,7 @@ export function ProjectBoard() {
             <QrCode size={20} className="mr-2" />
             My QR Code
           </button>
-          {!isAdding && (
+          {user && !isAdding && (
             <button
               onClick={() => setIsAdding(true)}
               className="flex items-center bg-stone-900 text-white px-4 py-2 rounded-xl hover:bg-stone-800 transition-colors"

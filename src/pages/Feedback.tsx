@@ -14,14 +14,14 @@ export function Feedback() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
     setError('');
     setSuccess('');
     setSubmitting(true);
 
     try {
       await addDoc(collection(db, 'feedback'), {
-        userId: user.uid,
+        userId: user?.uid || 'anonymous',
+        authorName: user?.displayName || 'Guest User',
         message,
         type,
         status: 'new',

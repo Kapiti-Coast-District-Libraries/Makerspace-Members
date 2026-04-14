@@ -21,50 +21,14 @@ export function Dashboard() {
   const [announcementContent, setAnnouncementContent] = useState('');
 
   useEffect(() => {
-    if (!user) return;
-
-    // Listen to room status
-    const roomQuery = query(
-      collection(db, 'room_logs'),
-      where('userId', '==', user.uid),
-      orderBy('signInTime', 'desc'),
-      limit(1)
-    );
-
-    const unsubRoom = onSnapshot(roomQuery, (snapshot) => {
-      if (!snapshot.empty) {
-        const latestLog = snapshot.docs[0].data();
-        setRoomStatus({
-          signedIn: !latestLog.signOutTime,
-          log: { id: snapshot.docs[0].id, ...latestLog }
-        });
-      } else {
-        setRoomStatus({ signedIn: false, log: null });
-      }
-    });
-
-    // Listen to qualifications
-    const qualQuery = query(
-      collection(db, 'qualifications'),
-      where('userId', '==', user.uid),
-      where('status', '==', 'active')
-    );
-
-    const unsubQual = onSnapshot(qualQuery, (snapshot) => {
-      const quals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setQualifications(quals);
-    });
-
-    // Listen to announcements
+    // Public listeners - always active
     const annQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
     const unsubAnn = onSnapshot(annQuery, (snapshot) => {
       setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    // Listen to events
     const eventsQuery = query(collection(db, 'events'), orderBy('date', 'asc'));
     const unsubEvents = onSnapshot(eventsQuery, (snapshot) => {
-      // Filter out past events (optional, but good for "What's On")
       const now = new Date();
       const upcomingEvents = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
@@ -72,22 +36,62 @@ export function Dashboard() {
       setEvents(upcomingEvents);
     });
 
-    // Listen to featured projects (top 3 by likes)
-    const projectsQuery = query(collection(db, 'projects'), orderBy('likes', 'desc'), limit(3));
+    const projectsQuery = query(collection(db, 'projects'), orderBy('likes', 'desc'), limit(10));
     const unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
       setFeaturedProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
+      if (!user) setLoading(false);
     });
 
-    // Listen to ready print jobs
-    const jobsQuery = query(
-      collection(db, 'print_jobs'),
-      where('userId', '==', user.uid),
-      where('status', '==', 'ready')
-    );
-    const unsubJobs = onSnapshot(jobsQuery, (snapshot) => {
-      setReadyJobs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    let unsubRoom = () => {};
+    let unsubQual = () => {};
+    let unsubJobs = () => {};
+
+    if (user) {
+      // Listen to room status
+      const roomQuery = query(
+        collection(db, 'room_logs'),
+        where('userId', '==', user.uid),
+        orderBy('signInTime', 'desc'),
+        limit(1)
+      );
+
+      unsubRoom = onSnapshot(roomQuery, (snapshot) => {
+        if (!snapshot.empty) {
+          const latestLog = snapshot.docs[0].data();
+          setRoomStatus({
+            signedIn: !latestLog.signOutTime,
+            log: { id: snapshot.docs[0].id, ...latestLog }
+          });
+        } else {
+          setRoomStatus({ signedIn: false, log: null });
+        }
+      });
+
+      // Listen to qualifications
+      const qualQuery = query(
+        collection(db, 'qualifications'),
+        where('userId', '==', user.uid),
+        where('status', '==', 'active')
+      );
+
+      unsubQual = onSnapshot(qualQuery, (snapshot) => {
+        const quals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setQualifications(quals);
+      });
+
+      // Listen to ready print jobs
+      const jobsQuery = query(
+        collection(db, 'print_jobs'),
+        where('userId', '==', user.uid),
+        where('status', '==', 'ready')
+      );
+      unsubJobs = onSnapshot(jobsQuery, (snapshot) => {
+        setReadyJobs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        setLoading(false);
+      });
+    } else {
+      setLoading(false);
+    }
 
     return () => {
       unsubRoom();
@@ -151,8 +155,12 @@ export function Dashboard() {
   return (
     <div className="space-y-8">
       <header className="mb-8">
-        <h1 className="text-4xl font-bold tracking-tight text-stone-900">Welcome, {user?.displayName || 'User'}</h1>
-        <p className="text-stone-500 mt-2 text-lg">Manage your makerspace access and activity.</p>
+        <h1 className="text-4xl font-bold tracking-tight text-stone-900">
+          {user ? `Welcome, ${user.displayName || 'User'}` : 'Welcome to the Makerspace'}
+        </h1>
+        <p className="text-stone-500 mt-2 text-lg">
+          {user ? 'Manage your makerspace access and activity.' : 'Explore our community projects, tools, and upcoming events.'}
+        </p>
       </header>
 
       {readyJobs.length > 0 && (
@@ -180,57 +188,72 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Room Status & Qualifications */}
         <div className="lg:col-span-1 space-y-6">
-          {/* Room Status Card */}
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-200 flex flex-col items-center justify-center text-center">
-            <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 ${roomStatus.signedIn ? 'bg-emerald-100 text-emerald-600' : 'bg-stone-100 text-stone-400'}`}>
-              {roomStatus.signedIn ? <CheckCircle size={40} /> : <Clock size={40} />}
-            </div>
-            <h2 className="text-2xl font-semibold mb-2">
-              {roomStatus.signedIn ? 'You are signed in' : 'You are signed out'}
-            </h2>
-            <p className="text-stone-500 mb-8">
-              {roomStatus.signedIn && roomStatus.log?.signInTime
-                ? `Since ${roomStatus.log.signInTime.toDate ? roomStatus.log.signInTime.toDate().toLocaleTimeString() : 'just now'}` 
-                : 'Sign in to access the makerspace room.'}
-            </p>
-            <button
-              onClick={handleSignToggle}
-              className={`flex items-center space-x-2 px-8 py-4 rounded-2xl font-medium transition-all ${
-                roomStatus.signedIn 
-                  ? 'bg-stone-100 text-stone-900 hover:bg-stone-200' 
-                  : 'bg-stone-900 text-white hover:bg-stone-800'
-              }`}
-            >
-              {roomStatus.signedIn ? <LogOut size={20} /> : <LogIn size={20} />}
-              <span>{roomStatus.signedIn ? 'Sign Out of Room' : 'Sign In to Room'}</span>
-            </button>
-          </div>
-
-          {/* Qualifications Card */}
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-200">
-            <h2 className="text-2xl font-semibold mb-6 flex items-center">
-              <CheckCircle className="mr-3 text-stone-400" />
-              Your Qualifications
-            </h2>
-            
-            {qualifications.length === 0 ? (
-              <div className="text-center py-8 text-stone-500 bg-stone-50 rounded-2xl">
-                <p>You haven't completed any inductions yet.</p>
-                <p className="text-sm mt-2">Head to the Inductions tab to get started.</p>
+          {user ? (
+            <>
+              {/* Room Status Card */}
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-200 flex flex-col items-center justify-center text-center">
+                <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 ${roomStatus.signedIn ? 'bg-emerald-100 text-emerald-600' : 'bg-stone-100 text-stone-400'}`}>
+                  {roomStatus.signedIn ? <CheckCircle size={40} /> : <Clock size={40} />}
+                </div>
+                <h2 className="text-2xl font-semibold mb-2">
+                  {roomStatus.signedIn ? 'You are signed in' : 'You are signed out'}
+                </h2>
+                <p className="text-stone-500 mb-8">
+                  {roomStatus.signedIn && roomStatus.log?.signInTime
+                    ? `Since ${roomStatus.log.signInTime.toDate ? roomStatus.log.signInTime.toDate().toLocaleTimeString() : 'just now'}` 
+                    : 'Sign in to access the makerspace room.'}
+                </p>
+                <button
+                  onClick={handleSignToggle}
+                  className={`flex items-center space-x-2 px-8 py-4 rounded-2xl font-medium transition-all ${
+                    roomStatus.signedIn 
+                      ? 'bg-stone-100 text-stone-900 hover:bg-stone-200' 
+                      : 'bg-stone-900 text-white hover:bg-stone-800'
+                  }`}
+                >
+                  {roomStatus.signedIn ? <LogOut size={20} /> : <LogIn size={20} />}
+                  <span>{roomStatus.signedIn ? 'Sign Out of Room' : 'Sign In to Room'}</span>
+                </button>
               </div>
-            ) : (
-              <ul className="space-y-3">
-                {qualifications.map((q, idx) => (
-                  <li key={idx} className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl">
-                    <span className="font-medium text-stone-900">{q.equipmentId}</span>
-                    <span className="text-sm text-stone-500">
-                      {q.acquiredAt?.toDate ? q.acquiredAt.toDate().toLocaleDateString() : 'Recently'}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+
+              {/* Qualifications Card */}
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-200">
+                <h2 className="text-2xl font-semibold mb-6 flex items-center">
+                  <CheckCircle className="mr-3 text-stone-400" />
+                  Your Qualifications
+                </h2>
+                
+                {qualifications.length === 0 ? (
+                  <div className="text-center py-8 text-stone-500 bg-stone-50 rounded-2xl">
+                    <p>You haven't completed any inductions yet.</p>
+                    <p className="text-sm mt-2">Head to the Inductions tab to get started.</p>
+                  </div>
+                ) : (
+                  <ul className="space-y-3">
+                    {qualifications.map((q, idx) => (
+                      <li key={idx} className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl">
+                        <span className="font-medium text-stone-900">{q.equipmentId}</span>
+                        <span className="text-sm text-stone-500">
+                          {q.acquiredAt?.toDate ? q.acquiredAt.toDate().toLocaleDateString() : 'Recently'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="bg-stone-900 text-white p-8 rounded-3xl shadow-xl">
+              <h2 className="text-2xl font-bold mb-4">Join our community</h2>
+              <p className="text-stone-400 mb-8">Sign in to book equipment, log your usage, and track your makerspace qualifications.</p>
+              <Link 
+                to="/login"
+                className="block w-full py-4 bg-white text-stone-900 rounded-2xl font-bold text-center hover:bg-stone-100 transition-colors"
+              >
+                Sign In / Sign Up
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* Middle Column: Announcements & Events */}
@@ -362,7 +385,7 @@ export function Dashboard() {
                 <p>No projects featured yet.</p>
               </div>
             ) : (
-              <div className="space-y-6">
+            <div className="space-y-6 overflow-y-auto max-h-[600px] pr-2 custom-scrollbar">
                 {featuredProjects.map((project) => (
                   <div key={project.id} className="group cursor-pointer">
                     <div className="aspect-video w-full rounded-2xl overflow-hidden mb-3">

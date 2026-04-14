@@ -475,15 +475,19 @@ const getDriveClient = async () => {
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
     
     if (!clientId || !clientSecret) {
+      console.warn('Server: Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET for OAuth fallback');
       return null;
     }
 
     const config = await getConfig('google_drive_admin');
     if (config && config.tokens) {
+      console.log('Server: Found OAuth tokens in Firestore for', config.email);
       const client = getOAuth2Client();
       client.setCredentials(config.tokens);
       driveClient = google.drive({ version: 'v3', auth: client });
       return driveClient;
+    } else {
+      console.warn('Server: No OAuth tokens found in Firestore (google_drive_admin)');
     }
   } catch (err) {
     console.error('Server: Failed to load OAuth tokens:', err);

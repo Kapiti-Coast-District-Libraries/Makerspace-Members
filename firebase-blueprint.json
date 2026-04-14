@@ -124,6 +124,52 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["tokens", "updatedAt"]
+    },
+    "Equipment": {
+      "title": "Equipment",
+      "description": "Makerspace equipment details",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "quiz": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "question": { "type": "string" },
+              "options": { "type": "array", "items": { "type": "string" } },
+              "answer": { "type": "number" }
+            }
+          }
+        },
+        "slides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "content": { "type": "string" },
+              "imageUrl": { "type": "string", "format": "uri" }
+            }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "description", "createdAt"]
+    },
+    "InductionBooking": {
+      "title": "InductionBooking",
+      "description": "A booking for an in-person induction",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "equipmentId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "completed", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "equipmentId", "date", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -162,6 +208,14 @@
     "app_config/{configId}": {
       "schema": { "$ref": "#/entities/AppConfig" },
       "description": "Application configuration collection"
+    },
+    "equipment/{equipmentId}": {
+      "schema": { "$ref": "#/entities/Equipment" },
+      "description": "Equipment collection"
+    },
+    "induction_bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/InductionBooking" },
+      "description": "Induction bookings collection"
     }
   }
 }

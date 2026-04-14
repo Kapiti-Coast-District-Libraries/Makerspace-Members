@@ -125,8 +125,9 @@ service cloud.firestore {
     }
 
     function isValidFeedback(data) {
-      return hasOnlyAllowedFields(['userId', 'message', 'type', 'status', 'createdAt']) &&
+      return hasOnlyAllowedFields(['userId', 'authorName', 'message', 'type', 'status', 'createdAt']) &&
              data.userId is string && data.userId.size() > 0 &&
+             (!('authorName' in data) || (data.authorName is string && data.authorName.size() < 100)) &&
              data.message is string && data.message.size() > 0 && data.message.size() < 2000 &&
              data.type in ['consumable', 'general', 'issue'] &&
              data.status in ['new', 'in-progress', 'resolved', 'archived'] &&
@@ -167,11 +168,13 @@ service cloud.firestore {
     }
 
     function isValidEquipment(data) {
-      return hasOnlyAllowedFields(['name', 'description', 'quiz', 'createdAt']) &&
+      return hasOnlyAllowedFields(['name', 'description', 'quiz', 'slides', 'createdAt', 'updatedAt']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.description is string && data.description.size() > 0 && data.description.size() < 1000 &&
              (!('quiz' in data) || (data.quiz is list && data.quiz.size() <= 20)) &&
-             data.createdAt is timestamp;
+             (!('slides' in data) || (data.slides is list && data.slides.size() <= 20)) &&
+             (!('createdAt' in data) || data.createdAt is timestamp) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
     function isValidAnnouncement(data) {
@@ -244,28 +247,28 @@ service cloud.firestore {
     }
 
     match /feedback/{docId} {
-      allow read: if isAdmin() || isOwner(resource.data.userId);
-      allow create: if isOwner(request.resource.data.userId) && isValidFeedback(request.resource.data);
+      allow read: if isAdmin() || (isAuthenticated() && isOwner(resource.data.userId));
+      allow create: if isValidFeedback(request.resource.data) && (request.resource.data.userId == 'anonymous' || isOwner(request.resource.data.userId));
       allow update: if isAdmin() && isValidFeedback(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /instructions/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if isAdmin() && isValidInstruction(request.resource.data);
       allow update: if isAdmin() && isValidInstruction(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /design_tools/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if isAdmin() && isValidDesignTool(request.resource.data);
       allow update: if isAdmin() && isValidDesignTool(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /projects/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if isOwner(request.resource.data.userId) && isValidProject(request.resource.data);
       allow update: if isValidProject(request.resource.data) && request.resource.data.userId == resource.data.userId && (
         isOwner(resource.data.userId) || 
@@ -276,20 +279,20 @@ service cloud.firestore {
     }
 
     match /equipment/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if isAdmin() && isValidEquipment(request.resource.data);
       allow update: if isAdmin() && isValidEquipment(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /announcements/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if isAdmin() && isValidAnnouncement(request.resource.data);
       allow update: if isAdmin() && isValidAnnouncement(request.resource.data);
       allow delete: if isAdmin();
     }
     match /events/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if isAdmin() && isValidEvent(request.resource.data);
       allow update: if isAdmin() && isValidEvent(request.resource.data);
       allow delete: if isAdmin();
