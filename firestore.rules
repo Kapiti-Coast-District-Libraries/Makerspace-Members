@@ -157,14 +157,16 @@ service cloud.firestore {
     }
 
     function isValidDesignTool(data) {
-      return hasOnlyAllowedFields(['name', 'description', 'url', 'icon', 'color', 'type', 'createdAt']) &&
+      return hasOnlyAllowedFields(['name', 'description', 'url', 'icon', 'color', 'type', 'imageUrl', 'createdAt', 'updatedAt']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.description is string && data.description.size() > 0 && data.description.size() < 500 &&
              data.url is string && data.url.size() > 0 && data.url.size() < 1000 &&
              data.icon is string && data.icon.size() > 0 && data.icon.size() < 50 &&
              data.color is string && data.color.size() > 0 && data.color.size() < 50 &&
              data.type in ['external', 'react', 'iframe'] &&
-             data.createdAt is timestamp;
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() < 1000000)) &&
+             data.createdAt is timestamp &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
     function isValidEquipment(data) {

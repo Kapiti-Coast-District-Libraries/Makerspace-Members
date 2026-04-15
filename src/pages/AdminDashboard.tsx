@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDocs, where, addDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database, Settings, Plus, Trash2, Calendar, Box, UploadCloud, PlayCircle, Download, AlertCircle, Loader2, Camera } from 'lucide-react';
+import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database, Settings, Plus, Trash2, Calendar, Box, UploadCloud, PlayCircle, Download, AlertCircle, Loader2, Camera, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Custom Confirmation Modal
@@ -198,12 +198,15 @@ export function AdminDashboard() {
 
   // Design Tool form state
   const [isAddingDesignTool, setIsAddingDesignTool] = useState(false);
+  const [editingDesignToolId, setEditingDesignToolId] = useState<string | null>(null);
   const [newDesignToolName, setNewDesignToolName] = useState('');
   const [newDesignToolDesc, setNewDesignToolDesc] = useState('');
   const [newDesignToolUrl, setNewDesignToolUrl] = useState('');
   const [newDesignToolIcon, setNewDesignToolIcon] = useState('Box');
   const [newDesignToolColor, setNewDesignToolColor] = useState('bg-indigo-100 text-indigo-700');
   const [newDesignToolType, setNewDesignToolType] = useState<'external' | 'react' | 'iframe'>('iframe');
+  const [newDesignToolImage, setNewDesignToolImage] = useState('');
+  const [isSavingDesignTool, setIsSavingDesignTool] = useState(false);
 
   // Feedback state
   const [showArchivedFeedback, setShowArchivedFeedback] = useState(false);
@@ -532,26 +535,57 @@ export function AdminDashboard() {
   const handleAddDesignTool = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    setIsSavingDesignTool(true);
     try {
-      await addDoc(collection(db, 'design_tools'), {
+      const toolData = {
         name: newDesignToolName,
         description: newDesignToolDesc,
         url: newDesignToolUrl,
         icon: newDesignToolIcon,
         color: newDesignToolColor,
         type: newDesignToolType,
-        createdAt: serverTimestamp()
-      });
+        imageUrl: newDesignToolImage,
+        updatedAt: serverTimestamp()
+      };
+
+      if (editingDesignToolId) {
+        await updateDoc(doc(db, 'design_tools', editingDesignToolId), toolData);
+      } else {
+        await addDoc(collection(db, 'design_tools'), {
+          ...toolData,
+          createdAt: serverTimestamp()
+        });
+      }
+
       setNewDesignToolName('');
       setNewDesignToolDesc('');
       setNewDesignToolUrl('');
       setNewDesignToolIcon('Box');
       setNewDesignToolColor('bg-indigo-100 text-indigo-700');
       setNewDesignToolType('iframe');
+      setNewDesignToolImage('');
       setIsAddingDesignTool(false);
+      setEditingDesignToolId(null);
     } catch (err) {
-      console.error('Error adding design tool:', err);
+      console.error('Error saving design tool:', err);
+    } finally {
+      setIsSavingDesignTool(false);
     }
+  };
+
+  const handleEditDesignTool = (tool: any) => {
+    setEditingDesignToolId(tool.id);
+    setNewDesignToolName(tool.name);
+    setNewDesignToolDesc(tool.description);
+    setNewDesignToolUrl(tool.url);
+    setNewDesignToolIcon(tool.icon || 'Box');
+    setNewDesignToolColor(tool.color || 'bg-indigo-100 text-indigo-700');
+    setNewDesignToolType(tool.type || 'iframe');
+    setNewDesignToolImage(tool.imageUrl || '');
+    setIsAddingDesignTool(true);
+    
+    // Scroll to form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDeleteDesignTool = (id: string) => {
@@ -1194,7 +1228,17 @@ export function AdminDashboard() {
             </h2>
             {!isAddingDesignTool && (
               <button
-                onClick={() => setIsAddingDesignTool(true)}
+                onClick={() => {
+                  setEditingDesignToolId(null);
+                  setNewDesignToolName('');
+                  setNewDesignToolDesc('');
+                  setNewDesignToolUrl('');
+                  setNewDesignToolIcon('Box');
+                  setNewDesignToolColor('bg-indigo-100 text-indigo-700');
+                  setNewDesignToolType('iframe');
+                  setNewDesignToolImage('');
+                  setIsAddingDesignTool(true);
+                }}
                 className="flex items-center text-sm bg-stone-100 text-stone-700 px-3 py-2 rounded-xl hover:bg-stone-200 transition-colors"
               >
                 <Plus size={16} className="mr-1" />
@@ -1205,6 +1249,7 @@ export function AdminDashboard() {
 
           {isAddingDesignTool && (
             <form onSubmit={handleAddDesignTool} className="mb-8 p-6 bg-stone-50 rounded-2xl border border-stone-200">
+              <h3 className="text-lg font-bold mb-4">{editingDesignToolId ? 'Edit Design Tool' : 'Add New Design Tool'}</h3>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Tool Name</label>
@@ -1282,19 +1327,35 @@ export function AdminDashboard() {
                     </select>
                   </div>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-2">Tool Preview Image (Optional)</label>
+                  <div className="flex items-center space-x-4">
+                    {newDesignToolImage && (
+                      <div className="w-20 h-20 rounded-xl overflow-hidden border border-stone-200">
+                        <img src={newDesignToolImage} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      </div>
+                    )}
+                    <ImageUpload onUpload={setNewDesignToolImage} />
+                  </div>
+                </div>
                 <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
-                    onClick={() => setIsAddingDesignTool(false)}
+                    onClick={() => {
+                      setIsAddingDesignTool(false);
+                      setEditingDesignToolId(null);
+                    }}
                     className="px-4 py-2 text-stone-600 hover:bg-stone-200 rounded-xl transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-colors"
+                    disabled={isSavingDesignTool}
+                    className="px-4 py-2 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-colors disabled:opacity-50 flex items-center"
                   >
-                    Save Tool
+                    {isSavingDesignTool && <Loader2 size={16} className="mr-2 animate-spin" />}
+                    {editingDesignToolId ? 'Update Tool' : 'Save Tool'}
                   </button>
                 </div>
               </div>
@@ -1306,17 +1367,33 @@ export function AdminDashboard() {
           ) : (
             <div className="space-y-4">
               {designTools.map(tool => (
-                <div key={tool.id} className="p-4 bg-stone-50 rounded-2xl relative group">
-                  <button
-                    onClick={() => handleDeleteDesignTool(tool.id)}
-                    className="absolute top-4 right-4 p-2 text-stone-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Delete tool"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                  <h3 className="font-semibold text-stone-900 mb-1 pr-8">{tool.name}</h3>
-                  <p className="text-sm text-stone-600 mb-1">{tool.description}</p>
-                  <p className="text-xs text-stone-400 truncate pr-8">{tool.url}</p>
+                <div key={tool.id} className="p-4 bg-stone-50 rounded-2xl relative group flex items-start space-x-4">
+                  <div className="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => handleEditDesignTool(tool)}
+                      className="p-2 text-stone-400 hover:text-indigo-600"
+                      title="Edit tool"
+                    >
+                      <Edit2 size={18} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteDesignTool(tool.id)}
+                      className="p-2 text-stone-400 hover:text-red-600"
+                      title="Delete tool"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                  {tool.imageUrl && (
+                    <div className="w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 border border-stone-200">
+                      <img src={tool.imageUrl} alt={tool.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-stone-900 mb-1 pr-8">{tool.name}</h3>
+                    <p className="text-sm text-stone-600 mb-1">{tool.description}</p>
+                    <p className="text-xs text-stone-400 truncate pr-8">{tool.url}</p>
+                  </div>
                 </div>
               ))}
             </div>

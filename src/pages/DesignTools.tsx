@@ -65,9 +65,20 @@ export function DesignTools() {
             let linkElement;
             const CardContent = (
               <>
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 ${tool.color}`}>
-                  <Icon size={24} />
-                </div>
+                {tool.imageUrl ? (
+                  <div className="aspect-video w-full rounded-2xl overflow-hidden mb-4 border border-stone-100">
+                    <img 
+                      src={tool.imageUrl} 
+                      alt={tool.name} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                ) : (
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 ${tool.color}`}>
+                    <Icon size={24} />
+                  </div>
+                )}
                 <h3 className="text-xl font-semibold text-stone-900 mb-2 group-hover:text-indigo-600 transition-colors">
                   {tool.name}
                 </h3>

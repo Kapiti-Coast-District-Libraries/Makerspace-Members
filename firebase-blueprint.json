@@ -170,6 +170,22 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "equipmentId", "date", "status", "createdAt"]
+    },
+    "DesignTool": {
+      "title": "DesignTool",
+      "description": "A design tool or generator",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "url": { "type": "string" },
+        "icon": { "type": "string" },
+        "color": { "type": "string" },
+        "type": { "type": "string", "enum": ["external", "react", "iframe"] },
+        "imageUrl": { "type": "string", "format": "uri" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "description", "url", "type", "createdAt"]
     }
   },
   "firestore": {
