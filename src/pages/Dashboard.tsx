@@ -13,6 +13,7 @@ export function Dashboard() {
   const [events, setEvents] = useState<any[]>([]);
   const [featuredProjects, setFeaturedProjects] = useState<any[]>([]);
   const [readyJobs, setReadyJobs] = useState<any[]>([]);
+  const [equipmentMap, setEquipmentMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   // Announcement form state
@@ -40,6 +41,16 @@ export function Dashboard() {
     const unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
       setFeaturedProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       if (!user) setLoading(false);
+    });
+
+    // Listen to equipment to build a name map
+    const equipQuery = query(collection(db, 'equipment'));
+    const unsubEquipNames = onSnapshot(equipQuery, (snapshot) => {
+      const map: Record<string, string> = {};
+      snapshot.docs.forEach(doc => {
+        map[doc.id] = doc.data().name;
+      });
+      setEquipmentMap(map);
     });
 
     let unsubRoom = () => {};
@@ -99,6 +110,7 @@ export function Dashboard() {
       unsubAnn();
       unsubEvents();
       unsubProjects();
+      unsubEquipNames();
       unsubJobs();
     };
   }, [user]);
@@ -232,7 +244,7 @@ export function Dashboard() {
                   <ul className="space-y-3">
                     {qualifications.map((q, idx) => (
                       <li key={idx} className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl">
-                        <span className="font-medium text-stone-900">{q.equipmentId}</span>
+                        <span className="font-medium text-stone-900">{equipmentMap[q.equipmentId] || q.equipmentId}</span>
                         <span className="text-sm text-stone-500">
                           {q.acquiredAt?.toDate ? q.acquiredAt.toDate().toLocaleDateString() : 'Recently'}
                         </span>

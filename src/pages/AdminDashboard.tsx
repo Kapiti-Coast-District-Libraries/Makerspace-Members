@@ -829,14 +829,16 @@ export function AdminDashboard() {
           ) : (
             <div className="space-y-4">
               {/* Legacy Qualifications */}
-              {qualifications.map(qual => (
-                <div key={qual.id} className="p-4 bg-stone-50 rounded-2xl flex justify-between items-center">
-                  <div>
-                    <p className="font-medium text-stone-900">User ID: {qual.userId}</p>
-                    <p className="text-sm text-stone-500">Equipment: {qual.equipmentId}</p>
-                    <p className="text-xs text-stone-400">Requested: {qual.createdAt?.toDate ? qual.createdAt.toDate().toLocaleDateString() : 'Unknown'}</p>
-                  </div>
-                  <div className="flex space-x-2">
+              {qualifications.map(qual => {
+                const eq = equipment.find(e => e.id === qual.equipmentId);
+                return (
+                  <div key={qual.id} className="p-4 bg-stone-50 rounded-2xl flex justify-between items-center">
+                    <div>
+                      <p className="font-medium text-stone-900">User ID: {qual.userId}</p>
+                      <p className="text-sm text-stone-500">Equipment: {eq?.name || qual.equipmentId}</p>
+                      <p className="text-xs text-stone-400">Requested: {qual.createdAt?.toDate ? qual.createdAt.toDate().toLocaleDateString() : 'Unknown'}</p>
+                    </div>
+                    <div className="flex space-x-2">
                     <button 
                       onClick={() => handleApproveQualification(qual.id)}
                       className="p-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded-xl transition-colors"
@@ -853,7 +855,8 @@ export function AdminDashboard() {
                     </button>
                   </div>
                 </div>
-              ))}
+              );
+            })}
               {/* Induction Bookings */}
               {inductionBookings.map(booking => {
                 const eq = equipment.find(e => e.id === booking.equipmentId);

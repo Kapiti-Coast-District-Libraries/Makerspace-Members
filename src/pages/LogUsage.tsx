@@ -4,17 +4,13 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { PenTool, CheckCircle, AlertCircle } from 'lucide-react';
 
-const EQUIPMENT_OPTIONS = [
-  { id: 'laser-cutter', name: 'Laser Cutter', unit: 'minutes' },
-  { id: '3d-printer', name: '3D Printer', unit: 'grams' },
-  { id: 'vinyl-cutter', name: 'Vinyl Cutter', unit: 'meters' },
-  { id: 'sewing-machine', name: 'Sewing Machines', unit: 'hours' },
-  { id: 'hand-tools', name: 'Hand Tools / Electronics', unit: 'hours' },
-];
+const EQUIPMENT_OPTIONS = []; // We now fetch these dynamically
 
 export function LogUsage() {
   const { user } = useAuth();
   const [qualifications, setQualifications] = useState<string[]>([]);
+  const [equipmentList, setEquipmentList] = useState<any[]>([]);
+  const [equipmentMap, setEquipmentMap] = useState<Record<string, {name: string, unit: string}>>({});
   const [equipment, setEquipment] = useState('');
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(true);
@@ -41,6 +37,27 @@ export function LogUsage() {
       }
     });
 
+    // Listen to equipment to build a dynamic list and map
+    const equipQuery = query(collection(db, 'equipment'));
+    const unsubEquip = onSnapshot(equipQuery, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const map: Record<string, {name: string, unit: string}> = {};
+      
+      list.forEach((eq: any) => {
+        // Fallback units if not specified
+        let unit = 'minutes';
+        if (eq.name?.toLowerCase().includes('3d printer')) unit = 'grams';
+        if (eq.name?.toLowerCase().includes('vinyl')) unit = 'meters';
+        if (eq.name?.toLowerCase().includes('sewing')) unit = 'hours';
+        if (eq.name?.toLowerCase().includes('hand tools')) unit = 'hours';
+        
+        map[eq.id] = { name: eq.name, unit: eq.unit || unit };
+      });
+      
+      setEquipmentList(list);
+      setEquipmentMap(map);
+    });
+
     // Listen to usage logs
     const logsQuery = query(
       collection(db, 'usage_logs'),
@@ -56,6 +73,7 @@ export function LogUsage() {
 
     return () => {
       unsubQual();
+      unsubEquip();
       unsubLogs();
     };
   }, [user]);
@@ -67,7 +85,7 @@ export function LogUsage() {
     setSuccess('');
     setSubmitting(true);
 
-    const selectedEq = EQUIPMENT_OPTIONS.find(eq => eq.id === equipment);
+    const selectedEq = equipmentMap[equipment];
     if (!selectedEq) return;
 
     try {
@@ -137,9 +155,14 @@ export function LogUsage() {
                   className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 focus:border-transparent transition-all outline-none bg-white"
                   required
                 >
-                  {EQUIPMENT_OPTIONS.filter(eq => qualifications.includes(eq.id)).map(eq => (
-                    <option key={eq.id} value={eq.id}>{eq.name}</option>
-                  ))}
+                  {qualifications.map(eqId => {
+                    const eqInfo = equipmentMap[eqId];
+                    return (
+                      <option key={eqId} value={eqId}>
+                        {eqInfo?.name || eqId}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -179,11 +202,11 @@ export function LogUsage() {
           ) : (
             <div className="space-y-4">
               {logs.map((log, idx) => {
-                const eqName = EQUIPMENT_OPTIONS.find(eq => eq.id === log.equipmentId)?.name || log.equipmentId;
+                const eqInfo = equipmentMap[log.equipmentId];
                 return (
                   <div key={idx} className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl">
                     <div>
-                      <p className="font-medium text-stone-900">{eqName}</p>
+                      <p className="font-medium text-stone-900">{eqInfo?.name || log.equipmentId}</p>
                       <p className="text-sm text-stone-500">
                         {log.loggedAt?.toDate ? log.loggedAt.toDate().toLocaleString() : 'Recently'}
                       </p>
