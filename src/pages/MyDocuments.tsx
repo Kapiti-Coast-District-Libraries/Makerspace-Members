@@ -3,7 +3,7 @@ import { collection, addDoc, query, where, onSnapshot, orderBy, serverTimestamp,
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject, uploadString, uploadBytes } from 'firebase/storage';
 import { db, storage, auth, testFirestoreConnection } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, Upload, Trash2, Loader2, AlertCircle, CheckCircle, Clock, PlayCircle, ExternalLink } from 'lucide-react';
+import { FileText, Upload, Trash2, Loader2, AlertCircle, CheckCircle, Clock, PlayCircle, ExternalLink, Database as DatabaseIcon } from 'lucide-react';
 
 enum OperationType {
   CREATE = 'create',
@@ -71,7 +71,7 @@ interface PrintJob {
 
 export function MyDocuments() {
   const { user, userRole, loading: authLoading } = useAuth();
-  const isAdmin = userRole === 'admin';
+  const isAdmin = userRole === 'admin' || user?.email === 'paraparaumumake@gmail.com';
   const [jobs, setJobs] = useState<PrintJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -85,28 +85,16 @@ export function MyDocuments() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDriveConnected, setIsDriveConnected] = useState(false);
   const [connectionMethod, setConnectionMethod] = useState<'none' | 'oauth' | 'service_account'>('none');
-  const [checkingDrive, setCheckingDrive] = useState(true);
   const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [checkingDrive, setCheckingDrive] = useState(true);
 
   useEffect(() => {
-    if (authLoading) return;
-    console.log('MyDocuments: Checking Drive status...');
-    checkDriveStatus();
+    if (!authLoading) {
+      checkDriveStatus();
+    }
     
     const handleMessage = (event: MessageEvent) => {
-      // Validate origin is from AI Studio preview, localhost, or the current origin
-      const origin = event.origin;
-      const isAllowedOrigin = origin.endsWith('.run.app') || 
-                             origin.endsWith('.vercel.app') || 
-                             origin.includes('localhost') ||
-                             origin === window.location.origin;
-                             
-      if (!isAllowedOrigin) {
-        console.warn('MyDocuments: Ignored message from unauthorized origin:', origin);
-        return;
-      }
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        console.log('Client: OAuth success message received');
         checkDriveStatus();
         setSuccess('Google Drive connected successfully!');
       }
@@ -366,64 +354,65 @@ export function MyDocuments() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-4xl font-bold tracking-tight text-stone-900">My Documents</h1>
-        <p className="text-stone-500 mt-2 text-lg">Upload documents for 3D printing or processing.</p>
+        <h1 className="text-4xl font-bold tracking-tight text-stone-900">Makerspace Drive</h1>
+        <p className="text-stone-500 mt-2 text-lg">Securely upload documents to the admin's Google Drive.</p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-1">
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-200">
-            <h2 className="text-xl font-semibold text-stone-900 mb-6 flex items-center">
-              <Upload className="mr-2" size={24} />
-              Upload New
-            </h2>
+        {!isDriveConnected && !checkingDrive ? (
+          <div className="lg:col-span-3 bg-stone-50 border-2 border-stone-100 border-dashed p-12 rounded-[2.5rem] text-center">
+            <div className="max-w-md mx-auto">
+              <div className="w-20 h-20 bg-white rounded-3xl shadow-sm flex items-center justify-center mx-auto mb-6 text-stone-300">
+                <DatabaseIcon size={40} />
+              </div>
+              <h2 className="text-2xl font-bold text-stone-900 mb-2">Makerspace Drive Setup</h2>
+              <p className="text-stone-500 mb-8 leading-relaxed">
+                {isAdmin 
+                  ? 'The Makerspace Drive allows members to upload files directly to your library admin Google Drive. You need to connect it once to enable this feature for everyone.' 
+                  : 'Document storage is currently being set up by the Makerspace staff. Please check back soon or notify an administrator.'}
+              </p>
+              {isAdmin && (
+                <button
+                  onClick={handleConnectDrive}
+                  className="px-8 py-4 bg-stone-900 text-white rounded-2xl hover:bg-stone-800 transition-all font-semibold flex items-center justify-center mx-auto shadow-lg shadow-stone-200"
+                >
+                  <ExternalLink size={20} className="mr-3" />
+                  Connect Admin Account
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="lg:col-span-1">
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-200">
+                <h2 className="text-xl font-semibold text-stone-900 mb-6 flex items-center">
+                  <Upload className="mr-2" size={24} />
+                  Upload New
+                </h2>
 
-            {checkingDrive ? (
-              <div className="flex items-center justify-center py-12 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
-                <Loader2 size={32} className="animate-spin text-stone-400" />
-              </div>
-            ) : !isDriveConnected ? (
-              <div className="p-6 bg-stone-50 rounded-2xl border border-dashed border-stone-200 text-center space-y-4">
-                <div className="p-3 bg-white rounded-full w-fit mx-auto shadow-sm">
-                  <ExternalLink className="text-stone-400" size={24} />
-                </div>
-                <div>
-                  <h3 className="font-medium text-stone-900">
-                    {isAdmin ? 'Connect Google Drive' : 'Drive Not Connected'}
-                  </h3>
-                  <p className="text-sm text-stone-500 mt-1">
-                    {isAdmin 
-                      ? 'Connect your Google Drive to store user uploads securely.' 
-                      : 'The Makerspace Google Drive is not connected. Please contact an administrator.'}
-                  </p>
-                </div>
-                {isAdmin && (
-                  <button
-                    onClick={handleConnectDrive}
-                    className="w-full py-2 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-colors font-medium"
-                  >
-                    Connect Now
-                  </button>
-                )}
-              </div>
-            ) : (
-              <>
-                {isAdmin && (
-                  <div className="flex items-center justify-between mb-6 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                    <div className="flex items-center text-emerald-700 text-sm font-medium">
-                      <CheckCircle size={16} className="mr-2" />
-                      {connectionMethod === 'service_account' ? 'Admin Drive Hard-wired' : 'Admin Drive Connected'}
-                    </div>
-                    {connectionMethod === 'oauth' && (
-                      <button 
-                        onClick={handleDisconnectDrive}
-                        className="text-xs text-stone-400 hover:text-stone-600 underline"
-                      >
-                        Disconnect
-                      </button>
-                    )}
+                {checkingDrive ? (
+                  <div className="flex items-center justify-center py-12 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
+                    <Loader2 size={32} className="animate-spin text-stone-400" />
                   </div>
-                )}
+                ) : (
+                  <>
+                    {isAdmin && (
+                      <div className="flex items-center justify-between mb-6 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                        <div className="flex items-center text-emerald-700 text-sm font-medium">
+                          <CheckCircle size={16} className="mr-2" />
+                          Storage Active
+                        </div>
+                        {connectionMethod === 'oauth' && (
+                          <button 
+                            onClick={handleDisconnectDrive}
+                            className="text-xs text-stone-400 hover:text-stone-600 underline"
+                          >
+                            Disconnect
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                 {isAdmin && debugInfo && (
                   <div className="mb-6 p-4 bg-stone-50 rounded-xl text-[10px] font-mono text-stone-500 overflow-auto max-h-32">
@@ -458,23 +447,12 @@ export function MyDocuments() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Filament Color (Optional)</label>
-                    <input
-                      type="text"
-                      value={filamentColor}
-                      onChange={(e) => setFilamentColor(e.target.value)}
-                      placeholder="e.g., PLA Black"
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
-                    />
-                  </div>
-
-                  <div>
                     <label className="block text-sm font-medium text-stone-700 mb-1">Additional Notes (Optional)</label>
                     <textarea
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Any specific instructions?"
-                      rows={3}
+                      placeholder="Add any context or instructions for this file..."
+                      rows={4}
                       className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none resize-none"
                     />
                   </div>
@@ -544,10 +522,9 @@ export function MyDocuments() {
                             <span>• {job.createdAt.toDate().toLocaleDateString()}</span>
                           )}
                         </div>
-                        {(job.filamentColor || job.notes) && (
+                        {job.notes && (
                           <div className="mt-2 text-sm text-stone-600 bg-white p-2 rounded-lg border border-stone-100">
-                            {job.filamentColor && <p><span className="font-medium">Color:</span> {job.filamentColor}</p>}
-                            {job.notes && <p><span className="font-medium">Notes:</span> {job.notes}</p>}
+                            <p><span className="font-medium">Notes:</span> {job.notes}</p>
                           </div>
                         )}
                       </div>
@@ -579,7 +556,9 @@ export function MyDocuments() {
             )}
           </div>
         </div>
-      </div>
-    </div>
-  );
+      </>
+    )}
+  </div>
+</div>
+);
 }

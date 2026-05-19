@@ -1,5 +1,8 @@
 {
   "name": "Makerspace Dashboard",
   "description": "A dashboard for a public library makerspace to manage members, inductions, room access, and equipment usage.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

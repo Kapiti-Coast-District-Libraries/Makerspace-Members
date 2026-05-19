@@ -15,9 +15,13 @@ dotenv.config();
 console.log('Server: Module loading...');
 
 const getAppUrl = () => {
-  if (process.env.APP_URL) return process.env.APP_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return 'http://localhost:3000';
+  let url = '';
+  if (process.env.APP_URL) url = process.env.APP_URL;
+  else if (process.env.VERCEL_URL) url = `https://${process.env.VERCEL_URL}`;
+  else url = 'http://localhost:3000';
+  
+  // Remove trailing slash if present
+  return url.replace(/\/$/, '');
 };
 
 const APP_URL = getAppUrl();
@@ -46,9 +50,11 @@ const getFirestoreInstance = async () => {
     const { getApps, initializeApp, cert, applicationDefault } = await import('firebase-admin/app');
     const { getFirestore } = await import('firebase-admin/firestore');
 
+    const serviceAccountStr = process.env.FIREBASE_SERVICE_ACCOUNT;
+    const projectId = firebaseConfig.projectId || process.env.GOOGLE_CLOUD_PROJECT;
+    
     if (!getApps().length) {
       console.log('Server: Initializing Firebase Admin...');
-      const serviceAccountStr = process.env.FIREBASE_SERVICE_ACCOUNT;
       let serviceAccount: any = undefined;
       
       if (serviceAccountStr) {
@@ -58,31 +64,56 @@ const getFirestoreInstance = async () => {
         } catch (e) {
           console.error('Server: Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:', e);
         }
-      } else {
-        console.warn('Server: FIREBASE_SERVICE_ACCOUNT not found, falling back to applicationDefault()');
       }
 
-      const projectId = firebaseConfig.projectId || process.env.GOOGLE_CLOUD_PROJECT;
-      console.log(`Server: Project ID: ${projectId || 'unknown'}`);
+      console.log(`Server: Using Project ID: ${projectId || 'unknown'}`);
 
-      if (!projectId && !serviceAccount) {
-        throw new Error('Missing Project ID and Service Account. Firebase Admin cannot be initialized.');
-      }
-
-      firebaseAdminApp = initializeApp({
-        credential: serviceAccount ? cert(serviceAccount) : applicationDefault(),
+      const options: any = {
         projectId: projectId
-      });
+      };
+
+      if (serviceAccount) {
+        options.credential = cert(serviceAccount);
+      } else {
+        console.log('Server: No service account provided, using applicationDefault()');
+        options.credential = applicationDefault();
+      }
+
+      firebaseAdminApp = initializeApp(options);
       console.log('Server: Firebase Admin initialized successfully.');
     } else {
       firebaseAdminApp = getApps()[0];
+      console.log('Server: Using existing Firebase Admin app.');
     }
     
-    firestore = getFirestore(firebaseConfig.firestoreDatabaseId);
-    console.log(`Server: Firestore initialized with database ID: ${firebaseConfig.firestoreDatabaseId || '(default)'}`);
+    // Explicitly pass the app to getFirestore
+    try {
+      if (firebaseConfig.firestoreDatabaseId) {
+        console.log(`Server: Using custom Database ID: ${firebaseConfig.firestoreDatabaseId}`);
+        firestore = getFirestore(firebaseAdminApp, firebaseConfig.firestoreDatabaseId);
+      } else {
+        console.warn('Server: firebaseConfig.firestoreDatabaseId is missing, using default database.');
+        firestore = getFirestore(firebaseAdminApp);
+      }
+      
+      // Verification check (non-blocking log)
+      firestore.listCollections().then(cols => {
+        console.log(`Server: Successfully connected to Firestore. Found ${cols.length} collections.`);
+      }).catch(err => {
+        console.warn('Server: Preliminary Firestore check failed (might be expected if DB is empty):', err.message);
+      });
+      
+      console.log('Server: Firestore instance acquired.');
+    } catch (fsErr: any) {
+      console.error('Server: Error explicitly getting Firestore instance:', fsErr.message);
+      // Fallback
+      firestore = getFirestore(firebaseAdminApp);
+    }
+    
     return firestore;
   } catch (err: any) {
-    console.error('Server: Failed to initialize Firebase Admin or Firestore:', err.message);
+    console.error('Server: Critical failure initializing Firebase Admin or Firestore:', err.message);
+    if (err.stack) console.error(err.stack);
     return null;
   }
 };
@@ -102,16 +133,32 @@ const upload = multer({
 
 const ADMIN_EMAIL = 'paraparaumumake@gmail.com';
 
-const getOAuth2Client = () => {
+const getOAuth2Client = (req?: express.Request) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${APP_URL}/api/auth/google/callback`;
   
-  if (!clientId || !clientSecret) {
-    throw new Error('Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET');
+  let redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  
+  if (!redirectUri && req) {
+    // Attempt to detect the current host and protocol dynamically
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.headers.host;
+    if (host) {
+      redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+      console.log(`Server: Dynamically detected Redirect URI: ${redirectUri}`);
+    }
+  }
+
+  if (!redirectUri) {
+    redirectUri = `${APP_URL}/api/auth/google/callback`;
+    console.log(`Server: Falling back to APP_URL Redirect URI: ${redirectUri}`);
   }
   
-  console.log(`Server: Creating OAuth2 client with Redirect URI: ${redirectUri}`);
+  if (!clientId || !clientSecret) {
+    throw new Error('Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET. Please configure them in the Settings menu.');
+  }
+  
+  console.log(`Server: OAuth2 client initialization - ClientID: ${clientId.substring(0, 5)}..., RedirectURI: ${redirectUri}`);
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 };
 
@@ -123,12 +170,30 @@ export const expressApp = express();
 // Helper to get config from Firestore
 const getConfig = async (key: string) => {
   try {
-    const collection = await getConfigCollection();
-    if (!collection) return null;
-    const doc = await collection.doc(key).get();
-    return doc.exists ? doc.data() : null;
-  } catch (err) {
-    console.error('Error getting config from Firestore:', err);
+    const db = await getFirestoreInstance();
+    if (!db) {
+      console.error('getConfig: Firestore NOT initialized');
+      return null;
+    }
+    const collection = db.collection('server_config');
+    console.log(`getConfig: Fetching key "${key}" from server_config...`);
+    
+    // Use a slightly more defensive approach for get()
+    const docRef = collection.doc(key);
+    const doc = await docRef.get().catch(err => {
+      console.error(`getConfig: Permission or gRPC error for key "${key}":`, err.message);
+      return null;
+    });
+
+    if (doc && doc.exists) {
+      console.log(`getConfig: Successfully retrieved "${key}"`);
+      return doc.data();
+    } else {
+      console.log(`getConfig: Key "${key}" NOT found or errored in Firestore`);
+      return null;
+    }
+  } catch (err: any) {
+    console.error(`getConfig: Ultimate failure getting config "${key}":`, err.message);
     return null;
   }
 };
@@ -180,7 +245,7 @@ expressApp.use((err: any, req: any, res: any, next: any) => {
 expressApp.get('/api/auth/google/url', (req, res) => {
   try {
     console.log('Server: /api/auth/google/url requested');
-    const client = getOAuth2Client();
+    const client = getOAuth2Client(req);
 
     const url = client.generateAuthUrl({
       access_type: 'offline',
@@ -204,28 +269,11 @@ expressApp.get('/api/auth/google/callback', async (req, res) => {
 
   if (error) {
     console.error('Server: Google OAuth error:', error);
-    return res.send(`
-      <html>
-        <body style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #fef2f2;">
-          <h1 style="color: #dc2626;">Authentication Failed</h1>
-          <p>${error}</p>
-          <p>Closing in <span id="timer">10</span> seconds...</p>
-          <script>
-            let count = 10;
-            const timer = document.getElementById('timer');
-            setInterval(() => {
-              count--;
-              timer.innerText = count;
-              if (count <= 0) window.close();
-            }, 1000);
-          </script>
-        </body>
-      </html>
-    `);
+    return res.status(400).send(`Authentication failed: ${error}`);
   }
 
   try {
-    const client = getOAuth2Client();
+    const client = getOAuth2Client(req);
     console.log('Server: Exchanging code for tokens...');
     const { tokens } = await client.getToken(code as string);
     
@@ -346,7 +394,8 @@ expressApp.post('/api/upload', upload.single('file'), async (req, res) => {
     console.log(`Server: Uploading file ${file.originalname} to Admin Google Drive for user ${userId}`);
 
     // 1. Check if "Makerspace Uploads" folder exists, or create it
-    let folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
+    const config = await getConfig('google_drive_admin');
+    let folderId = config?.folderId || process.env.GOOGLE_DRIVE_FOLDER_ID || '';
     
     if (!folderId) {
       const folderResponse = await drive.files.list({
@@ -367,6 +416,13 @@ expressApp.post('/api/upload', upload.single('file'), async (req, res) => {
         });
         folderId = folder.data.id!;
       }
+      
+      // Save folderId back to config for faster lookup next time
+      await setConfig('google_drive_admin', { 
+        ...config,
+        folderId,
+        folderName: 'Makerspace Uploads'
+      });
     }
 
     // 2. Upload file to the folder
