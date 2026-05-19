@@ -4,9 +4,27 @@ import { getFirestore, doc, getDocFromCache, getDocFromServer } from 'firebase/f
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
+console.log('Firebase: Initializing with projectId:', firebaseConfig.projectId, 'and databaseId:', firebaseConfig.firestoreDatabaseId);
+
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Initialize Firestore with Database ID if provided, otherwise default
+let dbInstance;
+try {
+  if (firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)') {
+    dbInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+    console.log(`Firebase: Firestore initialized with database: ${firebaseConfig.firestoreDatabaseId}`);
+  } else {
+    dbInstance = getFirestore(app);
+    console.log('Firebase: Firestore initialized with default database');
+  }
+} catch (err) {
+  console.error('Firebase: Failed to initialize Firestore:', err);
+  dbInstance = getFirestore(app);
+}
+
+export const db = dbInstance;
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 

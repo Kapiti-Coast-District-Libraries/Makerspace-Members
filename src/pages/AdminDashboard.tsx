@@ -155,10 +155,6 @@ export function AdminDashboard() {
   const [users, setUsers] = useState<any[]>([]);
   const [qualifications, setQualifications] = useState<any[]>([]);
   const [inductionBookings, setInductionBookings] = useState<any[]>([]);
-  const [isDriveConnected, setIsDriveConnected] = useState(false);
-  const [connectionMethod, setConnectionMethod] = useState<'none' | 'oauth' | 'service_account'>('none');
-  const [checkingDrive, setCheckingDrive] = useState(true);
-  const [adminDriveFolder, setAdminDriveFolder] = useState('Makerspace Uploads');
   const [feedback, setFeedback] = useState<any[]>([]);
   const [equipment, setEquipment] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
@@ -270,16 +266,6 @@ export function AdminDashboard() {
       setLoading(false);
     });
 
-    checkDriveStatus();
-
-    // Listen for OAuth messages
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        checkDriveStatus();
-      }
-    };
-    window.addEventListener('message', handleMessage);
-
     return () => {
       unsubUsers();
       unsubQuals();
@@ -292,49 +278,6 @@ export function AdminDashboard() {
       window.removeEventListener('message', handleMessage);
     };
   }, [userRole]);
-
-  const checkDriveStatus = async () => {
-    try {
-      const response = await fetch('/api/auth/google/status');
-      const data = await response.json();
-      setIsDriveConnected(data.connected);
-      setConnectionMethod(data.method || 'none');
-    } catch (err) {
-      console.error('Error checking drive status:', err);
-    } finally {
-      setCheckingDrive(false);
-    }
-  };
-
-  const handleConnectDrive = async () => {
-    const authWindow = window.open('about:blank', 'google_auth_popup', 'width=600,height=700');
-    if (!authWindow) {
-      alert('Popup blocked! Please allow popups to connect Google Drive.');
-      return;
-    }
-    
-    authWindow.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px;">Loading authentication...</p>');
-
-    try {
-      const response = await fetch('/api/auth/google/url');
-      const data = await response.json();
-      authWindow.location.href = data.url;
-    } catch (err) {
-      authWindow.close();
-      alert('Failed to start Google Drive connection.');
-    }
-  };
-
-  const handleDisconnectDrive = async () => {
-    if (!window.confirm('Are you sure you want to disconnect the Admin Google Drive? This will prevent users from uploading documents.')) return;
-    try {
-      await fetch('/api/auth/google/logout', { method: 'POST' });
-      setIsDriveConnected(false);
-      setConnectionMethod('none');
-    } catch (err) {
-      alert('Failed to disconnect.');
-    }
-  };
 
   const handleApproveQualification = async (qualId: string) => {
     if (!user) return;
@@ -1608,7 +1551,7 @@ export function AdminDashboard() {
           )}
         </div>
 
-        {/* Google Drive Status Section */}
+        {/* Storage Status Section */}
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-200 lg:col-span-2">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-semibold flex items-center text-stone-900">
@@ -1618,48 +1561,28 @@ export function AdminDashboard() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className={`p-6 rounded-2xl border-2 transition-all ${isDriveConnected ? 'bg-emerald-50 border-emerald-100' : 'bg-stone-50 border-stone-100 border-dashed'}`}>
+            <div className="p-6 rounded-2xl border-2 bg-emerald-50 border-emerald-100">
               <div className="flex items-start justify-between">
                 <div className="flex items-center">
-                  <div className={`p-3 rounded-xl mr-4 ${isDriveConnected ? 'bg-white text-emerald-600 shadow-sm' : 'bg-white text-stone-400 shadow-sm'}`}>
+                  <div className="p-3 rounded-xl mr-4 bg-white text-emerald-600 shadow-sm">
                     <UploadCloud size={24} />
                   </div>
                   <div>
-                    <h3 className="font-bold text-stone-900">Google Drive Connection</h3>
-                    <p className={`text-sm ${isDriveConnected ? 'text-emerald-700' : 'text-stone-500'} mt-1`}>
-                      {checkingDrive ? 'Checking status...' : 
-                       isDriveConnected ? `Connected via ${connectionMethod === 'service_account' ? 'Service Account' : 'Admin OAuth'}` : 
-                       'Not connected'}
+                    <h3 className="font-bold text-stone-900">Firebase Storage</h3>
+                    <p className="text-sm text-emerald-700 mt-1">
+                      Status: Active & Secure
                     </p>
                   </div>
                 </div>
-                {isDriveConnected ? (
-                  connectionMethod === 'oauth' && (
-                    <button 
-                      onClick={handleDisconnectDrive}
-                      className="text-xs text-rose-600 hover:text-rose-700 font-medium underline"
-                    >
-                      Disconnect
-                    </button>
-                  )
-                ) : (
-                  <button 
-                    onClick={handleConnectDrive}
-                    disabled={checkingDrive}
-                    className="px-4 py-2 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-colors text-sm font-medium disabled:opacity-50"
-                  >
-                    Connect Admin Drive
-                  </button>
-                )}
               </div>
             </div>
 
             <div className="p-6 rounded-2xl bg-stone-50 border border-stone-100">
               <h3 className="font-bold text-stone-900 mb-2">Storage Guidance</h3>
               <p className="text-sm text-stone-500 leading-relaxed">
-                Connect your library admin email's Google Drive to store user-uploaded documents. 
-                Files will be stored in a folder titled <strong>{adminDriveFolder}</strong>. 
-                Others can upload documents without needing their own Google Drive connection.
+                Documents are now securely stored in Firebase Storage. 
+                Members can upload files directly through the <strong>My Documents</strong> tab. 
+                Admins can review and manage these files directly from the <strong>Print Queue</strong> section below.
               </p>
             </div>
           </div>

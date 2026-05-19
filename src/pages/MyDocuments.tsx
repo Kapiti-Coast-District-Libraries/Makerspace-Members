@@ -76,105 +76,12 @@ export function MyDocuments() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadStep, setUploadStep] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
   const [filamentColor, setFilamentColor] = useState('');
   const [notes, setNotes] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isDriveConnected, setIsDriveConnected] = useState(false);
-  const [connectionMethod, setConnectionMethod] = useState<'none' | 'oauth' | 'service_account'>('none');
-  const [debugInfo, setDebugInfo] = useState<any>(null);
-  const [checkingDrive, setCheckingDrive] = useState(true);
-
-  useEffect(() => {
-    if (!authLoading) {
-      checkDriveStatus();
-    }
-    
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        checkDriveStatus();
-        setSuccess('Google Drive connected successfully!');
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [authLoading]);
-
-  const checkDriveStatus = async () => {
-    try {
-      const response = await fetch('/api/auth/google/status');
-      const data = await response.json();
-      console.log('MyDocuments: Drive status response:', data);
-      setIsDriveConnected(data.connected);
-      setConnectionMethod(data.method || 'none');
-      setDebugInfo(data.debug);
-    } catch (err) {
-      console.error('MyDocuments: Error checking drive status:', err);
-    } finally {
-      setCheckingDrive(false);
-    }
-  };
-
-  const handleConnectDrive = async () => {
-    console.log('MyDocuments: handleConnectDrive clicked');
-    // Open window immediately to avoid popup blockers
-    const authWindow = window.open('about:blank', 'google_auth_popup', 'width=600,height=700');
-    if (!authWindow) {
-      console.error('MyDocuments: Popup blocked');
-      setError('Popup blocked! Please allow popups for this site to connect Google Drive.');
-      return;
-    }
-    
-    authWindow.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px;">Loading authentication...</p>');
-
-    try {
-      const fetchUrl = '/api/auth/google/url';
-      console.log(`MyDocuments: Fetching Google Auth URL from: ${fetchUrl}`);
-      const response = await fetch(fetchUrl);
-      console.log(`MyDocuments: Response status: ${response.status} ${response.statusText}`);
-      
-      const responseText = await response.text();
-      
-      if (!response.ok) {
-        console.error('MyDocuments: Auth URL fetch failed. Status:', response.status, 'Body:', responseText);
-        let errData;
-        try {
-          errData = JSON.parse(responseText);
-        } catch (e) {
-          errData = { error: 'Non-JSON error response', details: responseText.substring(0, 300) };
-        }
-        throw new Error(errData.error || `Server error: ${response.status}`);
-      }
-      
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        throw new Error('Failed to parse successful response as JSON');
-      }
-
-      const { url } = data;
-      console.log('MyDocuments: Redirecting popup to:', url);
-      authWindow.location.href = url;
-    } catch (err: any) {
-      console.error('MyDocuments: Error starting OAuth:', err);
-      authWindow.close();
-      setError('Failed to start Google Drive connection: ' + (err.message || 'Network error or server unreachable'));
-    }
-  };
-
-  const handleDisconnectDrive = async () => {
-    try {
-      await fetch('/api/auth/google/logout', { method: 'POST' });
-      setIsDriveConnected(false);
-      setSuccess('Google Drive disconnected.');
-    } catch (err) {
-      setError('Failed to disconnect Google Drive');
-    }
-  };
 
   useEffect(() => {
     if (!user || authLoading) return;
@@ -219,100 +126,63 @@ export function MyDocuments() {
       return;
     }
 
-    // Basic validation for Google Drive storage (e.g., 50MB)
+    // Limit to 50MB
     if (file.size > 50 * 1024 * 1024) {
       setError('File is too large. Max size is 50MB.');
       return;
     }
 
-    if (!isDriveConnected) {
-      if (isAdmin) {
-        setError('Please connect your Google Drive first.');
-      } else {
-        setError('Makerspace Google Drive is not connected. Please contact an administrator.');
-      }
-      return;
-    }
-
     setUploading(true);
     setUploadProgress(0);
-    setUploadStep('Initializing...');
     setError('');
     setSuccess('');
 
-    console.log('Starting upload process (Google Drive)...');
-    
-    // Timeout helper
-    const withTimeout = (promise: Promise<any>, ms: number, stepName: string) => {
-      return Promise.race([
-        promise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout during ${stepName}`)), ms))
-      ]);
-    };
-
     try {
-      // Step 1: Firestore connection
-      setUploadStep('Checking database...');
-      const isConnected = await withTimeout(testFirestoreConnection(), 5000, 'database check');
-      if (!isConnected) {
-        throw new Error('Could not connect to the database. Please check your internet connection.');
-      }
-
-      // Step 2: Server-side Upload & Save
-      setUploadStep('Uploading & Saving...');
+      // Step 1: Upload to Firebase Storage
+      const storagePath = `print_jobs/${user.uid}/${Date.now()}_${file.name}`;
+      const storageRef = ref(storage, storagePath);
       
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('userId', user.uid);
-      formData.append('userName', user.displayName || user.email || 'Anonymous');
-      formData.append('filamentColor', filamentColor);
-      formData.append('notes', notes);
+      const uploadTask = uploadBytesResumable(storageRef, file);
 
-      const uploadResponse = await withTimeout(
-        fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        }),
-        60000, // 1 minute timeout
-        'server upload'
-      );
+      await new Promise<void>((resolve, reject) => {
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            setUploadProgress(progress);
+          },
+          (error) => {
+            console.error('Firebase Storage upload error:', error);
+            reject(new Error('Failed to upload file to storage.'));
+          },
+          () => resolve()
+        );
+      });
 
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json().catch(() => ({ error: 'Unknown server error' }));
-        throw new Error(`Upload failed: ${errorData.error}`);
-      }
+      const fileUrl = await getDownloadURL(uploadTask.snapshot.ref);
 
-      const result = await uploadResponse.json();
-
-      // Step 3: Save to Firestore from Client
-      setUploadStep('Finalizing record...');
-      try {
-        await addDoc(collection(db, 'print_jobs'), {
-          userId: user.uid,
-          userName: user.displayName || user.email || 'Anonymous',
-          fileName: file.name,
-          fileUrl: result.fileUrl,
-          driveFileId: result.driveFileId,
-          filamentColor: filamentColor || '',
-          notes: notes || '',
-          status: 'pending',
-          createdAt: serverTimestamp(),
-        });
-      } catch (fsErr) {
-        handleFirestoreError(fsErr, OperationType.CREATE, 'print_jobs');
-      }
+      // Step 2: Save metadata to Firestore
+      await addDoc(collection(db, 'print_jobs'), {
+        userId: user.uid,
+        userName: user.displayName || user.email || 'Anonymous',
+        fileName: file.name,
+        fileUrl,
+        storagePath,
+        filamentColor: filamentColor || '',
+        notes: notes || '',
+        status: 'pending',
+        createdAt: serverTimestamp(),
+      });
 
       setSuccess('Document uploaded and saved successfully!');
       setFilamentColor('');
       setNotes('');
-      setUploadStep('');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     } catch (err: any) {
       console.error('Upload error details:', err);
       setError(err.message || 'An unexpected error occurred. Please try again.');
-      setUploadStep('');
     } finally {
       setUploading(false);
       setUploadProgress(0);
@@ -323,8 +193,19 @@ export function MyDocuments() {
     if (!window.confirm('Are you sure you want to delete this document?')) return;
     
     try {
-      // Delete from Firestore
+      // 1. Delete from Firestore
       await deleteDoc(doc(db, 'print_jobs', job.id));
+
+      // 2. Delete from Storage if it exists
+      if (job.fileUrl && job.fileUrl.includes('firebasestorage.googleapis.com')) {
+        try {
+          // Attempt to extract path or use a stored path if available
+          const storageRef = ref(storage, job.fileUrl);
+          await deleteObject(storageRef);
+        } catch (storageErr) {
+          console.warn('Could not delete storage object (it might have been deleted already):', storageErr);
+        }
+      }
     } catch (err) {
       console.error('Error deleting document:', err);
       setError('Failed to delete document.');
@@ -354,133 +235,76 @@ export function MyDocuments() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-4xl font-bold tracking-tight text-stone-900">Makerspace Drive</h1>
-        <p className="text-stone-500 mt-2 text-lg">Securely upload documents to the admin's Google Drive.</p>
+        <h1 className="text-4xl font-bold tracking-tight text-stone-900">Makerspace Document Storage</h1>
+        <p className="text-stone-500 mt-2 text-lg">Securely upload documents for printing and review.</p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {!isDriveConnected && !checkingDrive ? (
-          <div className="lg:col-span-3 bg-stone-50 border-2 border-stone-100 border-dashed p-12 rounded-[2.5rem] text-center">
-            <div className="max-w-md mx-auto">
-              <div className="w-20 h-20 bg-white rounded-3xl shadow-sm flex items-center justify-center mx-auto mb-6 text-stone-300">
-                <DatabaseIcon size={40} />
+        <div className="lg:col-span-1">
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-200">
+            <h2 className="text-xl font-semibold text-stone-900 mb-6 flex items-center">
+              <Upload className="mr-2" size={24} />
+              Upload New
+            </h2>
+
+            {error && (
+              <div className="mb-6 p-4 bg-rose-50 text-rose-700 rounded-xl text-sm flex items-start">
+                <AlertCircle size={16} className="mr-2 mt-0.5 flex-shrink-0" />
+                {error}
               </div>
-              <h2 className="text-2xl font-bold text-stone-900 mb-2">Makerspace Drive Setup</h2>
-              <p className="text-stone-500 mb-8 leading-relaxed">
-                {isAdmin 
-                  ? 'The Makerspace Drive allows members to upload files directly to your library admin Google Drive. You need to connect it once to enable this feature for everyone.' 
-                  : 'Document storage is currently being set up by the Makerspace staff. Please check back soon or notify an administrator.'}
-              </p>
-              {isAdmin && (
-                <button
-                  onClick={handleConnectDrive}
-                  className="px-8 py-4 bg-stone-900 text-white rounded-2xl hover:bg-stone-800 transition-all font-semibold flex items-center justify-center mx-auto shadow-lg shadow-stone-200"
-                >
-                  <ExternalLink size={20} className="mr-3" />
-                  Connect Admin Account
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="lg:col-span-1">
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-200">
-                <h2 className="text-xl font-semibold text-stone-900 mb-6 flex items-center">
-                  <Upload className="mr-2" size={24} />
-                  Upload New
-                </h2>
-
-                {checkingDrive ? (
-                  <div className="flex items-center justify-center py-12 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
-                    <Loader2 size={32} className="animate-spin text-stone-400" />
-                  </div>
-                ) : (
-                  <>
-                    {isAdmin && (
-                      <div className="flex items-center justify-between mb-6 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                        <div className="flex items-center text-emerald-700 text-sm font-medium">
-                          <CheckCircle size={16} className="mr-2" />
-                          Storage Active
-                        </div>
-                        {connectionMethod === 'oauth' && (
-                          <button 
-                            onClick={handleDisconnectDrive}
-                            className="text-xs text-stone-400 hover:text-stone-600 underline"
-                          >
-                            Disconnect
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                {isAdmin && debugInfo && (
-                  <div className="mb-6 p-4 bg-stone-50 rounded-xl text-[10px] font-mono text-stone-500 overflow-auto max-h-32">
-                    <p className="font-bold mb-1">Debug Info (Admin Only):</p>
-                    <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
-                  </div>
-                )}
-
-                {error && (
-                  <div className="mb-6 p-4 bg-rose-50 text-rose-700 rounded-xl text-sm flex items-start">
-                    <AlertCircle size={16} className="mr-2 mt-0.5 flex-shrink-0" />
-                    {error}
-                  </div>
-                )}
-
-                {success && (
-                  <div className="mb-6 p-4 bg-emerald-50 text-emerald-700 rounded-xl text-sm flex items-start">
-                    <CheckCircle size={16} className="mr-2 mt-0.5 flex-shrink-0" />
-                    {success}
-                  </div>
-                )}
-
-                <form onSubmit={handleUpload} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">File</label>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      required
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-stone-50 file:text-stone-700 hover:file:bg-stone-100"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Additional Notes (Optional)</label>
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Add any context or instructions for this file..."
-                      rows={4}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none resize-none"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={uploading}
-                    className="w-full flex flex-col items-center justify-center px-6 py-3 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-colors disabled:opacity-50 font-medium overflow-hidden relative"
-                  >
-                    {uploading && (
-                      <div 
-                        className="absolute inset-0 bg-stone-700 transition-all duration-300 ease-out origin-left"
-                        style={{ width: `${uploadProgress}%`, opacity: 0.3 }}
-                      />
-                    )}
-                    <span className="relative flex flex-col items-center">
-                      <span className="flex items-center">
-                        {uploading ? (
-                          <><Loader2 size={20} className="mr-2 animate-spin" /> {uploadStep}</>
-                        ) : (
-                          <><Upload size={20} className="mr-2" /> Upload to Drive</>
-                        )}
-                      </span>
-                    </span>
-                  </button>
-                </form>
-              </>
             )}
+
+            {success && (
+              <div className="mb-6 p-4 bg-emerald-50 text-emerald-700 rounded-xl text-sm flex items-start">
+                <CheckCircle size={16} className="mr-2 mt-0.5 flex-shrink-0" />
+                {success}
+              </div>
+            )}
+
+            <form onSubmit={handleUpload} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">File</label>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  required
+                  className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-stone-50 file:text-stone-700 hover:file:bg-stone-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Additional Notes (Optional)</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Add any context or instructions for this file..."
+                  rows={4}
+                  className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none resize-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={uploading}
+                className="w-full flex flex-col items-center justify-center px-6 py-3 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-colors disabled:opacity-50 font-medium overflow-hidden relative"
+              >
+                {uploading && (
+                  <div 
+                    className="absolute inset-0 bg-stone-700 transition-all duration-300 ease-out origin-left"
+                    style={{ width: `${uploadProgress}%`, opacity: 0.3 }}
+                  />
+                )}
+                <span className="relative flex flex-col items-center">
+                  <span className="flex items-center">
+                    {uploading ? (
+                      <><Loader2 size={20} className="mr-2 animate-spin" /> Uploading {Math.round(uploadProgress)}%</>
+                    ) : (
+                      <><Upload size={20} className="mr-2" /> Upload Document</>
+                    )}
+                  </span>
+                </span>
+              </button>
+            </form>
           </div>
         </div>
 
@@ -556,9 +380,7 @@ export function MyDocuments() {
             )}
           </div>
         </div>
-      </>
-    )}
-  </div>
-</div>
-);
+      </div>
+    </div>
+  );
 }
