@@ -3,6 +3,32 @@ import path from 'path';
 import fs from 'fs';
 import cookieSession from 'cookie-session';
 import dotenv from 'dotenv';
+import multer from 'multer';
+
+// Ensure uploads directory exists
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+// Multer storage engine configuration
+const storageEngine = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, UPLOADS_DIR);
+  },
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
+    cb(null, `${timestamp}_${sanitizedName}`);
+  }
+});
+
+const upload = multer({
+  storage: storageEngine,
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB file size limit
+  }
+});
 
 dotenv.config();
 
@@ -148,6 +174,65 @@ expressApp.get('/api/health', (req, res) => {
       nodeEnv: process.env.NODE_ENV || 'development'
     }
   });
+});
+
+// Multipart file upload endpoint
+expressApp.post('/api/upload-file', upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+  
+  res.json({
+    success: true,
+    fileName: req.file.originalname,
+    storagePath: req.file.filename,
+    fileUrl: `/api/files/download/${encodeURIComponent(req.file.filename)}`
+  });
+});
+
+// File download streaming endpoint
+expressApp.get('/api/files/download/:filename', (req, res) => {
+  const filename = req.params.filename;
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+  
+  const filePath = path.join(UPLOADS_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+  
+  const originalName = (req.query.name as string) || filename.split('_').slice(1).join('_') || filename;
+  
+  res.download(filePath, originalName, (err) => {
+    if (err) {
+      console.error('File download error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to download file' });
+      }
+    }
+  });
+});
+
+// File deletion endpoint
+expressApp.delete('/api/files/delete/:filename', (req, res) => {
+  const filename = req.params.filename;
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+  
+  const filePath = path.join(UPLOADS_DIR, filename);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+      res.json({ success: true, message: 'File deleted from disk' });
+    } catch (err: any) {
+      console.error('Error deleting file from disk:', err);
+      res.status(500).json({ error: 'Could not delete file from disk', details: err.message });
+    }
+  } else {
+    res.json({ success: true, message: 'File was already missing from disk' });
+  }
 });
 
 async function startServer() {

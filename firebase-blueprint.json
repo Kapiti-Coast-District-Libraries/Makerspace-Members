@@ -186,6 +186,23 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "description", "url", "type", "createdAt"]
+    },
+    "StaffFile": {
+      "title": "StaffFile",
+      "description": "A file uploaded by a user or guest for staff review",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string", "format": "email" },
+        "fileName": { "type": "string" },
+        "fileUrl": { "type": "string", "format": "uri" },
+        "storagePath": { "type": "string" },
+        "note": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "read", "archived"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "userEmail", "fileName", "fileUrl", "storagePath", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -232,6 +249,10 @@
     "induction_bookings/{bookingId}": {
       "schema": { "$ref": "#/entities/InductionBooking" },
       "description": "Induction bookings collection"
+    },
+    "staff_files/{fileId}": {
+      "schema": { "$ref": "#/entities/StaffFile" },
+      "description": "Collection of files sent to staff"
     }
   }
 }

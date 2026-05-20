@@ -220,6 +220,19 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidStaffFile(data) {
+      return hasOnlyAllowedFields(['userId', 'userName', 'userEmail', 'fileName', 'fileUrl', 'storagePath', 'note', 'status', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() < 100 &&
+             data.userEmail is string && data.userEmail.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
+             data.fileName is string && data.fileName.size() > 0 && data.fileName.size() < 255 &&
+             data.fileUrl is string && data.fileUrl.size() > 0 && data.fileUrl.size() < 2000 &&
+             data.storagePath is string && data.storagePath.size() > 0 && data.storagePath.size() < 1000 &&
+             (!('note' in data) || (data.note is string && data.note.size() < 1000)) &&
+             data.status in ['pending', 'read', 'archived'] &&
+             data.createdAt is timestamp;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'member' || isAdmin());
@@ -314,6 +327,13 @@ service cloud.firestore {
       allow create: if isOwner(request.resource.data.userId) && isValidPrintJob(request.resource.data);
       allow update: if (isAdmin() || isOwner(resource.data.userId)) && isValidPrintJob(request.resource.data);
       allow delete: if isAdmin() || isOwner(resource.data.userId);
+    }
+
+    match /staff_files/{docId} {
+      allow read: if isAdmin() || (isAuthenticated() && isOwner(resource.data.userId));
+      allow create: if isValidStaffFile(request.resource.data) && (request.resource.data.userId == 'anonymous' || isOwner(request.resource.data.userId));
+      allow update: if isAdmin() && isValidStaffFile(request.resource.data);
+      allow delete: if isAdmin() || (isAuthenticated() && isOwner(resource.data.userId));
     }
 
     match /server_config/{docId} {

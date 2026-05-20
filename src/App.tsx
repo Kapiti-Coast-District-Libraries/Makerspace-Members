@@ -16,9 +16,9 @@ import { Instructions } from './pages/Instructions';
 import { ProjectBoard } from './pages/ProjectBoard';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { Profile } from './pages/Profile';
-import { MyDocuments } from './pages/MyDocuments';
 import { DesignTools } from './pages/DesignTools';
 import { ToolShell } from './pages/ToolShell';
+import { SendFiles } from './pages/SendFiles';
 
 function ProtectedRoute({ children, requireAdmin = false }: { children: React.ReactNode, requireAdmin?: boolean }) {
   const { user, userRole, loading } = useAuth();
@@ -45,13 +45,13 @@ export default function App() {
             <Route path="/design-tools/view/:toolId" element={<ToolShell />} />
             <Route path="/instructions" element={<Instructions />} />
             <Route path="/feedback" element={<Feedback />} />
+            <Route path="/send-files" element={<SendFiles />} />
 
             {/* Protected Routes */}
             <Route element={<ProtectedRoute><Outlet /></ProtectedRoute>}>
               <Route path="/inductions" element={<Inductions />} />
               <Route path="/log-usage" element={<LogUsage />} />
               <Route path="/space-usage" element={<ProtectedRoute requireAdmin><SpaceUsage /></ProtectedRoute>} />
-              <Route path="/documents" element={<MyDocuments />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
             </Route>

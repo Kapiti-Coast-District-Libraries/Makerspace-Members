@@ -275,7 +275,6 @@ export function AdminDashboard() {
       unsubEvents();
       unsubJobs();
       unsubTools();
-      window.removeEventListener('message', handleMessage);
     };
   }, [userRole]);
 

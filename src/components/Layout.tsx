@@ -22,6 +22,7 @@ export function Layout() {
     { path: '/', label: user ? 'Dashboard' : 'Home', icon: Home },
     { path: '/projects', label: 'Project Board', icon: ImageIcon },
     { path: '/design-tools', label: 'Design Tools', icon: Box },
+    { path: '/send-files', label: 'Send to Staff', icon: UploadCloud },
     { path: '/instructions', label: 'Manuals', icon: FileText },
     { path: '/feedback', label: 'Feedback', icon: MessageSquare },
   ];
@@ -30,7 +31,6 @@ export function Layout() {
   if (user) {
     navItems.push({ path: '/inductions', label: 'Inductions', icon: BookOpen });
     navItems.push({ path: '/log-usage', label: 'Log Usage', icon: PenTool });
-    navItems.push({ path: '/documents', label: 'My Documents', icon: UploadCloud });
     navItems.push({ path: '/profile', label: 'Profile', icon: User });
   }
 
