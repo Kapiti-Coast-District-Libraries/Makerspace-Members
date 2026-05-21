@@ -7,13 +7,23 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 
 // Ensure uploads directory is configured appropriately (uses writable /tmp on Vercel/production)
-const UPLOADS_DIR = process.env.VERCEL || process.env.NODE_ENV === 'production'
-  ? os.tmpdir()
-  : path.join(process.cwd(), 'uploads');
+const getUploadsDir = () => {
+  if (process.env.VERCEL || process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV) {
+    return os.tmpdir();
+  }
+  try {
+    const localDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(localDir)) {
+      fs.mkdirSync(localDir, { recursive: true });
+    }
+    return localDir;
+  } catch (err) {
+    console.warn('Failed to create local uploads directory, using temp directory:', err);
+    return os.tmpdir();
+  }
+};
 
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
+const UPLOADS_DIR = getUploadsDir();
 
 // Multer storage engine configuration
 const storageEngine = multer.diskStorage({
@@ -237,97 +247,139 @@ const checkAuth = async (req: any, res: any, next: any) => {
   }
 };
 
-// Multipart file upload endpoint
-expressApp.post('/api/upload-file', upload.single('file'), async (req: any, res: any) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
-  }
-  
-  const { userName, userEmail, note } = req.body;
-  const tempFilePath = req.file.path;
-  const filename = req.file.filename;
-  const originalname = req.file.originalname;
-  
-  let userId = 'anonymous';
-  
-  // Try to authenticate optional sender identity
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split('Bearer ')[1];
-    try {
-      const { getAuth } = await import('firebase-admin/auth');
-      const decodedToken = await getAuth(firebaseAdminApp).verifyIdToken(token);
-      userId = decodedToken.uid;
-    } catch (err) {
-      console.warn('Upload-file auth fallback:', err);
-    }
-  }
-
-  try {
-    let finalUrl = `/api/files/download/${encodeURIComponent(filename)}`;
-    let isCloudUploaded = false;
-    
-    // 1. Attempt upload to Cloud Storage via Admin SDK fallback
-    const bucket = await getStorageBucketInstance();
-    if (bucket) {
-      console.log(`Uploading file ${filename} (local: ${tempFilePath}) to Firebase Storage...`);
-      await bucket.upload(tempFilePath, {
-        destination: `staff_files/${filename}`,
-        metadata: {
-          contentType: req.file.mimetype,
-        }
+// Multipart file upload endpoint with manual multer error catching and resilient fallbacks
+expressApp.post('/api/upload-file', (req: any, res: any, next: any) => {
+  upload.single('file')(req, res, async (multerErr: any) => {
+    if (multerErr) {
+      console.error('Multer file upload error:', multerErr);
+      return res.status(500).json({
+        error: 'Failed to process file upload via Multer',
+        message: multerErr.message,
+        details: multerErr.code || multerErr.toString()
       });
-      isCloudUploaded = true;
-      console.log('Uploaded to cloud successfully.');
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { userName, userEmail, note } = req.body;
+    const tempFilePath = req.file.path;
+    const filename = req.file.filename;
+    const originalname = req.file.originalname;
+    
+    let userId = 'anonymous';
+    
+    // Try to authenticate optional sender identity
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split('Bearer ')[1];
+      try {
+        const { getAuth } = await import('firebase-admin/auth');
+        const decodedToken = await getAuth(firebaseAdminApp).verifyIdToken(token);
+        userId = decodedToken.uid;
+      } catch (err) {
+        console.warn('Upload-file auth fallback:', err);
+      }
+    }
+
+    try {
+      let finalUrl = `/api/files/download/${encodeURIComponent(filename)}`;
+      let isCloudUploaded = false;
       
-      // On Vercel, clean up temp files immediately to remain lean
-      if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+      // 1. Attempt upload to Cloud Storage via Admin SDK fallback
+      const bucket = await getStorageBucketInstance();
+      if (bucket) {
+        console.log(`Uploading file ${filename} (local: ${tempFilePath}) to Firebase Storage...`);
         try {
-          fs.unlinkSync(tempFilePath);
-          console.log('Cleaned up Vercel serverless temporary file.');
-        } catch (cleanupErr) {
-          console.error('Error unlinking temporary file:', cleanupErr);
+          await bucket.upload(tempFilePath, {
+            destination: `staff_files/${filename}`,
+            metadata: {
+              contentType: req.file.mimetype,
+            }
+          });
+          isCloudUploaded = true;
+          console.log('Uploaded to cloud successfully.');
+        } catch (gcsErr: any) {
+          console.error('Failed to upload file to Cloud Storage bucket:', gcsErr);
+          if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+            throw new Error(`Failed to upload file to GCS: ${gcsErr.message}`);
+          }
+        }
+        
+        // On Vercel, clean up temp files immediately to remain lean
+        if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+          try {
+            fs.unlinkSync(tempFilePath);
+            console.log('Cleaned up Vercel serverless temporary file.');
+          } catch (cleanupErr) {
+            console.error('Error unlinking temporary file:', cleanupErr);
+          }
+        }
+      } else {
+        console.warn('Firebase Storage bucket is not configured. Retaining file locally.');
+        if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+          throw new Error('Firebase Storage bucket is not configured on this production environment.');
         }
       }
-    } else {
-      console.warn('Firebase Storage bucket is not configured. Retaining file locally.');
-    }
-    
-    // 2. Safely capture DB metadata in Firestore
-    const db = await getFirestoreInstance();
-    let createdDoc = null;
-    if (db) {
-      const docPayload = {
-        userId,
-        userName: userName || 'Anonymous',
-        userEmail: userEmail || 'anonymous@example.com',
-        fileName: originalname,
-        fileUrl: finalUrl,
-        storagePath: filename,
-        note: note || '',
-        status: 'pending',
-        createdAt: FieldValue.serverTimestamp()
-      };
       
-      const docRef = await db.collection('staff_files').add(docPayload);
-      createdDoc = { id: docRef.id, ...docPayload };
-      console.log('Saved Firestore document metadata. ID:', docRef.id);
-    } else {
-      console.warn('Firestore is unavailable. Direct write skipped.');
+      // 2. Safely capture DB metadata in Firestore
+      const db = await getFirestoreInstance();
+      let createdDoc = null;
+      if (db) {
+        let timestampValue: any = new Date();
+        try {
+          if (FieldValue && typeof FieldValue.serverTimestamp === 'function') {
+            timestampValue = FieldValue.serverTimestamp();
+          }
+        } catch (tsErr) {
+          console.warn('Could not acquire FieldValue.serverTimestamp, falling back to Date:', tsErr);
+        }
+
+        const docPayload = {
+          userId,
+          userName: userName || 'Anonymous',
+          userEmail: userEmail || 'anonymous@example.com',
+          fileName: originalname,
+          fileUrl: finalUrl,
+          storagePath: filename,
+          note: note || '',
+          status: 'pending',
+          createdAt: timestampValue
+        };
+        
+        try {
+          const docRef = await db.collection('staff_files').add(docPayload);
+          createdDoc = { id: docRef.id, ...docPayload };
+          console.log('Saved Firestore document metadata. ID:', docRef.id);
+        } catch (dbErr: any) {
+          console.error('Failed to create document in Firestore collection:', dbErr);
+          throw new Error(`Cloud Firestore metadata write failed. Ensure your service account has correct collection writes and IAM roles setup. Details: ${dbErr.message}`);
+        }
+      } else {
+        console.warn('Firestore is unavailable. Direct write skipped.');
+        if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+          throw new Error('Cloud Firestore database instance is unavailable.');
+        }
+      }
+      
+      return res.json({
+        success: true,
+        fileName: originalname,
+        storagePath: filename,
+        fileUrl: finalUrl,
+        record: createdDoc
+      });
+      
+    } catch (err: any) {
+      console.error('Processing error uploading file:', err);
+      return res.status(500).json({ 
+        error: 'Failed to complete file upload process', 
+        message: err.message,
+        details: err.stack || err.toString()
+      });
     }
-    
-    res.json({
-      success: true,
-      fileName: originalname,
-      storagePath: filename,
-      fileUrl: finalUrl,
-      record: createdDoc
-    });
-    
-  } catch (err: any) {
-    console.error('Processing error uploading file:', err);
-    res.status(500).json({ error: 'Failed to complete file upload process', details: err.message });
-  }
+  });
 });
 
 // File download streaming endpoint
