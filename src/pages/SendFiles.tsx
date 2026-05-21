@@ -63,7 +63,7 @@ interface StaffFile {
 }
 
 export function SendFiles() {
-  const { user, userRole } = useAuth();
+  const { user, userRole, loading } = useAuth();
   
   // Tabs: 'upload' for everyone; 'inbox' for admins; 'my-uploads' for logged-in members
   const [activeTab, setActiveTab] = useState<'upload' | 'inbox' | 'my-uploads'>('upload');
@@ -112,58 +112,46 @@ export function SendFiles() {
     }
   }, [userRole]);
 
-  // Fetch admin files or active user's uploads
-  useEffect(() => {
-    let unsubscribe = () => {};
-    
-    if (userRole === 'admin') {
-      setLoadingFiles(true);
-      const q = query(collection(db, 'staff_files'), orderBy('createdAt', 'desc'));
-      unsubscribe = onSnapshot(q, (snapshot) => {
-        const docs = snapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            ...data
-          } as StaffFile;
-        });
-        setFilesList(docs);
-        setLoadingFiles(false);
-      }, (err) => {
-        setLoadingFiles(false);
-        handleFirestoreError(err, OperationType.LIST, 'staff_files');
-      });
+  // Unified function to fetch files from proxy API endpoint
+  const fetchFilesList = async () => {
+    if (loading) return;
+    setLoadingFiles(true);
+    try {
+      const headers: HeadersInit = {};
+      if (user) {
+        const token = await user.getIdToken();
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const response = await fetch('/api/staff-files', { headers });
+      if (!response.ok) {
+        throw new Error(`Proxy fetch failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      // format server timestamps safely
+      const parsedData = data.map((item: any) => ({
+        ...item,
+        createdAt: item.createdAt ? { toDate: () => new Date(item.createdAt) } : null
+      }));
+      
+      if (userRole === 'admin') {
+        setFilesList(parsedData);
+      } else if (user) {
+        setUserFilesList(parsedData);
+      }
+    } catch (err: any) {
+      console.error('Failed to load files from API proxy:', err);
+    } finally {
+      setLoadingFiles(false);
     }
+  };
 
-    return () => unsubscribe();
-  }, [userRole]);
-
-  // Listen to current user's uploads if not admin but logged in
+  // Re-fetch files list when user role or auth loading changes
   useEffect(() => {
-    let unsubscribe = () => {};
-    
-    if (user && userRole !== 'admin') {
-      setLoadingFiles(true);
-      const q = query(
-        collection(db, 'staff_files'), 
-        where('userId', '==', user.uid),
-        orderBy('createdAt', 'desc')
-      );
-      unsubscribe = onSnapshot(q, (snapshot) => {
-        const docs = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        } as StaffFile));
-        setUserFilesList(docs);
-        setLoadingFiles(false);
-      }, (err) => {
-        setLoadingFiles(false);
-        handleFirestoreError(err, OperationType.LIST, 'staff_files');
-      });
-    }
-
-    return () => unsubscribe();
-  }, [user, userRole]);
+    fetchFilesList();
+  }, [user, userRole, loading]);
 
   // Drag & drop handlers
   const handleDrag = (e: React.DragEvent) => {
@@ -211,6 +199,9 @@ export function SendFiles() {
     const xhr = new XMLHttpRequest();
     const formData = new FormData();
     formData.append('file', selectedFile);
+    formData.append('userName', senderName);
+    formData.append('userEmail', senderEmail);
+    formData.append('note', fileNote);
 
     xhr.upload.addEventListener('progress', (progressEvent) => {
       if (progressEvent.lengthComputable) {
@@ -224,25 +215,6 @@ export function SendFiles() {
         try {
           const response = JSON.parse(xhr.responseText);
 
-          const payload = {
-            userId: user?.uid || 'anonymous',
-            userName: senderName,
-            userEmail: senderEmail,
-            fileName: response.fileName,
-            fileUrl: response.fileUrl,
-            storagePath: response.storagePath,
-            note: fileNote,
-            status: 'pending' as const,
-            createdAt: serverTimestamp()
-          };
-
-          const pathForWrite = 'staff_files';
-          try {
-            await addDoc(collection(db, pathForWrite), payload);
-          } catch (writeErr) {
-            handleFirestoreError(writeErr, OperationType.WRITE, pathForWrite);
-          }
-
           setFeedbackMsg({ type: 'success', text: 'Your file has been sent to the staff successfully!' });
           setSelectedFile(null);
           setFileNote('');
@@ -250,9 +222,12 @@ export function SendFiles() {
             setSenderName('');
             setSenderEmail('');
           }
+          
+          // Refresh list immediately
+          fetchFilesList();
         } catch (err: any) {
-          console.error('Error finalising file upload:', err);
-          setFeedbackMsg({ type: 'error', text: `Error finalising upload: ${err.message || err}` });
+          console.error('Error parsing file upload details:', err);
+          setFeedbackMsg({ type: 'error', text: `Error finalizing upload: ${err.message || err}` });
         } finally {
           setIsUploading(false);
           setUploadProgress(null);
@@ -276,40 +251,50 @@ export function SendFiles() {
     });
 
     xhr.open('POST', '/api/upload-file');
+    
+    // Pass Bearer idToken so backend matches owner details correctly
+    if (user) {
+      try {
+        const idToken = await user.getIdToken();
+        xhr.setRequestHeader('Authorization', `Bearer ${idToken}`);
+      } catch (tokenErr) {
+        console.warn('Could not acquire current token:', tokenErr);
+      }
+    }
+    
     xhr.send(formData);
   };
 
   // Admin delete function (removes storage file AND database record safely)
   const handleDeleteFile = async (fileItem: StaffFile) => {
-    if (userRole !== 'admin') return;
     if (!window.confirm(`Are you sure you want to delete "${fileItem.fileName}"? This cannot be undone.`)) return;
 
     setDeletingId(fileItem.id);
     try {
-      // 1. Delete from Server disk storage first
-      try {
-        const response = await fetch(`/api/files/delete/${encodeURIComponent(fileItem.storagePath)}`, {
-          method: 'DELETE'
-        });
-        const deleteRes = await response.json();
-        console.log('File deleted from server:', deleteRes);
-      } catch (storageErr: any) {
-        // Handle gracefully if file is already missing from disk so admin isn't locked out of deleting db
-        console.warn('Backend file deletion failed: ', storageErr);
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json'
+      };
+      if (user) {
+        const token = await user.getIdToken();
+        headers['Authorization'] = `Bearer ${token}`;
       }
-
-      // 2. Delete Firestore Record
-      const docPath = `staff_files/${fileItem.id}`;
-      try {
-        await deleteDoc(doc(db, 'staff_files', fileItem.id));
-      } catch (dbErr) {
-        handleFirestoreError(dbErr, OperationType.DELETE, docPath);
+      
+      const response = await fetch(`/api/staff-files/${fileItem.id}`, {
+        method: 'DELETE',
+        headers
+      });
+      
+      if (!response.ok) {
+        const errJson = await response.json();
+        throw new Error(errJson.error || 'Failed to delete file');
       }
       
       setFeedbackMsg({ type: 'success', text: 'File deleted successfully.' });
       setTimeout(() => setFeedbackMsg(null), 3000);
+      
+      fetchFilesList();
     } catch (err: any) {
-      console.error('Failed to complete storage & schema deletion:', err);
+      console.error('Failed to complete file deletion:', err);
       alert(`Deletion failed: ${err.message || err}`);
     } finally {
       setDeletingId(null);
@@ -318,15 +303,31 @@ export function SendFiles() {
 
   // Admin status update action
   const handleUpdateStatus = async (id: string, newStatus: 'pending' | 'read' | 'archived') => {
-    if (userRole !== 'admin') return;
     setStatusUpdatingId(id);
-    const docPath = `staff_files/${id}`;
     try {
-      await updateDoc(doc(db, 'staff_files', id), {
-        status: newStatus
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json'
+      };
+      if (user) {
+        const token = await user.getIdToken();
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const response = await fetch(`/api/staff-files/${id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ status: newStatus })
       });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, docPath);
+      
+      if (!response.ok) {
+        const errJson = await response.json();
+        throw new Error(errJson.error || 'Failed to update status');
+      }
+      
+      fetchFilesList();
+    } catch (err: any) {
+      console.error('Failed to update status:', err);
+      alert(`Status update failed: ${err.message || err}`);
     } finally {
       setStatusUpdatingId(null);
     }
