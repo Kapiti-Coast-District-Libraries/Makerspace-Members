@@ -131,11 +131,18 @@ export function SendFiles() {
         const response = await fetch('/api/staff-files', { headers });
         if (response.ok) {
           const jsonVal = await response.json();
-          data = jsonVal.map((item: any) => ({
-            ...item,
-            createdAt: item.createdAt ? { toDate: () => new Date(item.createdAt) } : null
-          }));
-          success = true;
+          if (jsonVal && jsonVal.useClientFallback) {
+            console.log('Server requested client-side direct Firestore verification fallback.');
+            success = false;
+          } else if (Array.isArray(jsonVal)) {
+            data = jsonVal.map((item: any) => ({
+              ...item,
+              createdAt: item.createdAt ? { toDate: () => new Date(item.createdAt) } : null
+            }));
+            success = true;
+          } else {
+            console.warn('Unexpected api/staff-files response format:', jsonVal);
+          }
         } else {
           console.warn(`Proxy fetch returned non-ok status: ${response.status}`);
         }
