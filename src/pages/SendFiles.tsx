@@ -112,37 +112,68 @@ export function SendFiles() {
     }
   }, [userRole]);
 
-  // Unified function to fetch files from proxy API endpoint
+  // Unified function to fetch files from proxy API endpoint with direct client-side fallback
   const fetchFilesList = async () => {
     if (loading) return;
     setLoadingFiles(true);
     try {
-      const headers: HeadersInit = {};
-      if (user) {
-        const token = await user.getIdToken();
-        headers['Authorization'] = `Bearer ${token}`;
+      let data: any[] = [];
+      let success = false;
+      
+      // 1. First attempt to fetch via Proxy API (handles physical server files)
+      try {
+        const headers: HeadersInit = {};
+        if (user) {
+          const token = await user.getIdToken();
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        
+        const response = await fetch('/api/staff-files', { headers });
+        if (response.ok) {
+          const jsonVal = await response.json();
+          data = jsonVal.map((item: any) => ({
+            ...item,
+            createdAt: item.createdAt ? { toDate: () => new Date(item.createdAt) } : null
+          }));
+          success = true;
+        } else {
+          console.warn(`Proxy fetch returned non-ok status: ${response.status}`);
+        }
+      } catch (proxyErr) {
+        console.warn('Failed/Forbidden loading files from API proxy, falling back to direct Firestore:', proxyErr);
       }
       
-      const response = await fetch('/api/staff-files', { headers });
-      if (!response.ok) {
-        throw new Error(`Proxy fetch failed: ${response.statusText}`);
+      // 2. If proxy fails or returns error (such as PERMISSION_DENIED), query Firestore directly
+      if (!success) {
+        console.log('Querying Firestore directly using client Web SDK...');
+        let q;
+        if (userRole === 'admin') {
+          q = query(collection(db, 'staff_files'), orderBy('createdAt', 'desc'));
+        } else if (user) {
+          q = query(collection(db, 'staff_files'), where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+        } else {
+          q = query(collection(db, 'staff_files'), where('userId', '==', 'anonymous'), orderBy('createdAt', 'desc'));
+        }
+        
+        const querySnapshot = await getDocs(q);
+        data = querySnapshot.docs.map(docSnap => {
+          const docData = docSnap.data() as any;
+          return {
+            id: docSnap.id,
+            ...docData,
+            // If createdAt is a timestamp, it already has the .toDate() method
+            createdAt: docData.createdAt || null
+          };
+        });
       }
-      
-      const data = await response.json();
-      
-      // format server timestamps safely
-      const parsedData = data.map((item: any) => ({
-        ...item,
-        createdAt: item.createdAt ? { toDate: () => new Date(item.createdAt) } : null
-      }));
       
       if (userRole === 'admin') {
-        setFilesList(parsedData);
+        setFilesList(data);
       } else if (user) {
-        setUserFilesList(parsedData);
+        setUserFilesList(data);
       }
     } catch (err: any) {
-      console.error('Failed to load files from API proxy:', err);
+      console.error('Failed to load files from both API proxy and direct Firestore:', err);
     } finally {
       setLoadingFiles(false);
     }
@@ -215,6 +246,31 @@ export function SendFiles() {
         try {
           const response = JSON.parse(xhr.responseText);
 
+          // If server reported that Firestore update failed on server-side (due to permissions),
+          // handle fallback writing of document metadata client-side
+          if (response.dbWriteFailed) {
+            console.log('Server file saved, but Firestore write failed. Initiating client-side database write fallback...');
+            const payload = {
+              userId: user?.uid || 'anonymous',
+              userName: senderName,
+              userEmail: senderEmail,
+              fileName: response.fileName,
+              fileUrl: response.fileUrl,
+              storagePath: response.storagePath,
+              note: fileNote,
+              status: 'pending' as const,
+              createdAt: serverTimestamp()
+            };
+            
+            try {
+              await addDoc(collection(db, 'staff_files'), payload);
+              console.log('Resilient client-side Firestore document metadata write successful.');
+            } catch (writeErr: any) {
+              console.error('Failed fallback client metadata write:', writeErr);
+              handleFirestoreError(writeErr, OperationType.WRITE, 'staff_files');
+            }
+          }
+
           setFeedbackMsg({ type: 'success', text: 'Your file has been sent to the staff successfully!' });
           setSelectedFile(null);
           setFileNote('');
@@ -265,28 +321,36 @@ export function SendFiles() {
     xhr.send(formData);
   };
 
-  // Admin delete function (removes storage file AND database record safely)
+  // Admin/User delete function (cleans up physical files AND db entries resiliently)
   const handleDeleteFile = async (fileItem: StaffFile) => {
     if (!window.confirm(`Are you sure you want to delete "${fileItem.fileName}"? This cannot be undone.`)) return;
 
     setDeletingId(fileItem.id);
     try {
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json'
-      };
-      if (user) {
-        const token = await user.getIdToken();
-        headers['Authorization'] = `Bearer ${token}`;
+      // 1. Attempt server-side delete first (to remove physical file from disk or storage bucket)
+      try {
+        const headers: HeadersInit = {
+          'Content-Type': 'application/json'
+        };
+        if (user) {
+          const token = await user.getIdToken();
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        await fetch(`/api/staff-files/${fileItem.id}`, {
+          method: 'DELETE',
+          headers
+        });
+      } catch (proxyErr) {
+        console.warn('Backend file deletion proxy failed, proceeding with direct DB delete:', proxyErr);
       }
       
-      const response = await fetch(`/api/staff-files/${fileItem.id}`, {
-        method: 'DELETE',
-        headers
-      });
-      
-      if (!response.ok) {
-        const errJson = await response.json();
-        throw new Error(errJson.error || 'Failed to delete file');
+      // 2. Guarantee Firestore document deletion using Client-side Web SDK directly
+      const docPath = `staff_files/${fileItem.id}`;
+      try {
+        await deleteDoc(doc(db, 'staff_files', fileItem.id));
+      } catch (dbErr: any) {
+        console.error('Failed client-side delete document fallback:', dbErr);
+        handleFirestoreError(dbErr, OperationType.DELETE, docPath);
       }
       
       setFeedbackMsg({ type: 'success', text: 'File deleted successfully.' });
@@ -301,27 +365,37 @@ export function SendFiles() {
     }
   };
 
-  // Admin status update action
+  // Admin status update action with direct Client-side Database sync guarantee
   const handleUpdateStatus = async (id: string, newStatus: 'pending' | 'read' | 'archived') => {
     setStatusUpdatingId(id);
     try {
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json'
-      };
-      if (user) {
-        const token = await user.getIdToken();
-        headers['Authorization'] = `Bearer ${token}`;
+      // 1. Attempt server-side status update first
+      try {
+        const headers: HeadersInit = {
+          'Content-Type': 'application/json'
+        };
+        if (user) {
+          const token = await user.getIdToken();
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        await fetch(`/api/staff-files/${id}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ status: newStatus })
+        });
+      } catch (proxyErr) {
+        console.warn('Backend update query failed, proceeding with direct DB update:', proxyErr);
       }
       
-      const response = await fetch(`/api/staff-files/${id}`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify({ status: newStatus })
-      });
-      
-      if (!response.ok) {
-        const errJson = await response.json();
-        throw new Error(errJson.error || 'Failed to update status');
+      // 2. Direct client-side update fallback to ensure UI state syncs correctly
+      const docPath = `staff_files/${id}`;
+      try {
+        await updateDoc(doc(db, 'staff_files', id), {
+          status: newStatus
+        });
+      } catch (dbErr: any) {
+        console.error('Direct client DB status update failed:', dbErr);
+        handleFirestoreError(dbErr, OperationType.UPDATE, docPath);
       }
       
       fetchFilesList();

@@ -219,6 +219,9 @@ const checkAuth = async (req: any, res: any, next: any) => {
     return res.status(401).json({ error: 'Unauthorized: No token provided' });
   }
   
+  // Initialize and guarantee Firebase Admin is loaded
+  await getFirestoreInstance();
+  
   const token = authHeader.split('Bearer ')[1];
   try {
     const { getAuth } = await import('firebase-admin/auth');
@@ -226,18 +229,21 @@ const checkAuth = async (req: any, res: any, next: any) => {
     req.uid = decodedToken.uid;
     req.email = decodedToken.email;
     
-    // Fetch role
+    // Fetch role safely
     const db = await getFirestoreInstance();
+    req.role = 'member';
     if (db) {
-      const userSnap = await db.collection('users').doc(req.uid).get();
-      req.role = userSnap.exists ? userSnap.data()?.role : 'member';
-      
-      // Force admin if designated email
-      if (req.email === 'paraparaumumake@gmail.com') {
-        req.role = 'admin';
+      try {
+        const userSnap = await db.collection('users').doc(req.uid).get();
+        req.role = userSnap.exists ? userSnap.data()?.role : 'member';
+      } catch (dbErr: any) {
+        console.warn('Server: Failed/Denied fetching user role from Firestore, defaulting:', dbErr.message);
       }
-    } else {
-      req.role = 'member';
+    }
+    
+    // Force admin if designated email
+    if (req.email === 'paraparaumumake@gmail.com') {
+      req.role = 'admin';
     }
     
     next();
@@ -300,32 +306,29 @@ expressApp.post('/api/upload-file', (req: any, res: any, next: any) => {
           });
           isCloudUploaded = true;
           console.log('Uploaded to cloud successfully.');
-        } catch (gcsErr: any) {
-          console.error('Failed to upload file to Cloud Storage bucket:', gcsErr);
+          
+          // On Vercel or when cloud upload succeeds, clean up temp local files immediately to remain lean
           if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-            throw new Error(`Failed to upload file to GCS: ${gcsErr.message}`);
+            try {
+              fs.unlinkSync(tempFilePath);
+              console.log('Cleaned up Vercel serverless temporary file.');
+            } catch (cleanupErr) {
+              console.error('Error unlinking temporary file:', cleanupErr);
+            }
           }
-        }
-        
-        // On Vercel, clean up temp files immediately to remain lean
-        if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-          try {
-            fs.unlinkSync(tempFilePath);
-            console.log('Cleaned up Vercel serverless temporary file.');
-          } catch (cleanupErr) {
-            console.error('Error unlinking temporary file:', cleanupErr);
-          }
+        } catch (gcsErr: any) {
+          console.error('Failed to upload file to Cloud Storage bucket (will retain local fallback):', gcsErr.message);
+          // Do not fail the request - fall back to streaming locally from UPLOADS_DIR
         }
       } else {
-        console.warn('Firebase Storage bucket is not configured. Retaining file locally.');
-        if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-          throw new Error('Firebase Storage bucket is not configured on this production environment.');
-        }
+        console.warn('Firebase Storage bucket is not configured or failed to acquire. Retaining file locally.');
       }
       
       // 2. Safely capture DB metadata in Firestore
       const db = await getFirestoreInstance();
       let createdDoc = null;
+      let dbWriteFailed = false;
+      
       if (db) {
         let timestampValue: any = new Date();
         try {
@@ -351,16 +354,14 @@ expressApp.post('/api/upload-file', (req: any, res: any, next: any) => {
         try {
           const docRef = await db.collection('staff_files').add(docPayload);
           createdDoc = { id: docRef.id, ...docPayload };
-          console.log('Saved Firestore document metadata. ID:', docRef.id);
+          console.log('Saved Firestore document metadata on server. ID:', docRef.id);
         } catch (dbErr: any) {
-          console.error('Failed to create document in Firestore collection:', dbErr);
-          throw new Error(`Cloud Firestore metadata write failed. Ensure your service account has correct collection writes and IAM roles setup. Details: ${dbErr.message}`);
+          console.warn('Failed to create document in Firestore collection on server (will fallback client-side):', dbErr.message);
+          dbWriteFailed = true;
         }
       } else {
-        console.warn('Firestore is unavailable. Direct write skipped.');
-        if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-          throw new Error('Cloud Firestore database instance is unavailable.');
-        }
+        console.warn('Firestore is unavailable. Client-side Firestore write fallback required.');
+        dbWriteFailed = true;
       }
       
       return res.json({
@@ -368,6 +369,7 @@ expressApp.post('/api/upload-file', (req: any, res: any, next: any) => {
         fileName: originalname,
         storagePath: filename,
         fileUrl: finalUrl,
+        dbWriteFailed,
         record: createdDoc
       });
       
