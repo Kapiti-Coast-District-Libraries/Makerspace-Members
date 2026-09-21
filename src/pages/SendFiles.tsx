@@ -706,172 +706,55 @@ export function SendFiles() {
               </div>
             )}
 
-            {/* Core Google Forms Submission View */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              
-              {/* Submission Card Left Side - Action Center */}
-              <div className="lg:col-span-2 space-y-6">
-                <div className="bg-white p-8 rounded-3xl border border-stone-200 shadow-sm space-y-8">
-                  <div className="space-y-3">
-                    <div className="inline-flex items-center gap-2 bg-indigo-50 border border-indigo-150 text-indigo-800 px-3 py-1 rounded-full text-xs font-bold font-sans">
-                      <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
-                      Google Forms Cloud
-                    </div>
-                    <h2 className="text-2xl font-extrabold text-stone-900 flex items-center gap-2 tracking-tight">
-                      <UploadCloud className="text-indigo-600" size={26} />
-                      Submit New Design Files
-                    </h2>
-                    <p className="text-stone-500 text-sm leading-relaxed font-sans">
-                      All design files, 3D printing STL coordinate configurations, and laser vectors are submitted securely using our external Google Form. Google handles massive files, multi-gigabyte uploads, and credentials effortlessly!
-                    </p>
+            {/* Tidy, simple Google Forms Submission View */}
+            <div className="max-w-2xl mx-auto py-10 w-full">
+              <div className="bg-white p-10 rounded-3xl border border-stone-200 shadow-xl space-y-8 text-center relative overflow-hidden">
+                {/* Background soft glow */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-72 h-72 bg-gradient-to-tr from-stone-50 to-stone-100 rounded-full blur-3xl -z-10 pointer-events-none"></div>
+
+                <div className="mx-auto w-16 h-16 bg-stone-50 text-stone-900 rounded-2xl flex items-center justify-center border border-stone-150 shadow-sm">
+                  <UploadCloud size={32} strokeWidth={1.5} />
+                </div>
+
+                <div className="space-y-3">
+                  <h2 className="text-3xl font-extrabold text-stone-900 tracking-tight font-sans">
+                    Submit New Design Files
+                  </h2>
+                  <p className="text-stone-505 text-sm leading-relaxed max-w-md mx-auto font-sans">
+                    Transfer your 3D models (.STL, .OBJ), laser cutting vectors, or reference drawings securely via our verified Google Form.
+                  </p>
+                </div>
+
+                <div className="pt-4 flex flex-col items-center justify-center gap-4">
+                  <a
+                    href={getNativeUrl(googleFormUrl)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 bg-stone-900 text-white hover:bg-stone-850 px-8 py-4 rounded-xl font-bold text-sm shadow-md transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <ExternalLink size={16} />
+                    Upload a Document
+                  </a>
+                  <p className="text-stone-400 text-xs font-sans">
+                    Opens the secure submission form in a new browser tab
+                  </p>
+                </div>
+
+                <div className="pt-6 border-t border-stone-100 grid grid-cols-3 gap-2 text-stone-400 text-[11px] font-sans">
+                  <div>
+                    <span className="font-semibold text-stone-700 block">3D Printing</span>
+                    .STL, .OBJ, .3MF
                   </div>
-
-                  {/* HIGH-CONTRAST PRIMARY FOCUS CARD FOR 100% RELIABILITY */}
-                  <div className="p-8 bg-stone-900 text-white rounded-3xl shadow-md space-y-6 relative overflow-hidden">
-                    <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-48 h-48 bg-stone-800 circle rounded-full opacity-30 pointer-events-none"></div>
-                    
-                    <div className="space-y-2">
-                      <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                        <CheckCircle className="text-emerald-400" size={20} />
-                        Recommended Direct Action
-                      </h3>
-                      <p className="text-stone-300 text-xs leading-relaxed max-w-xl font-sans">
-                        Because Google Forms requires direct account sign-in to permit secure file uploads, web browsers block rendering inside nested site iframes. Opening the form in a standalone tab is 100% reliable, works on all devices, and syncs instantly with staff folders!
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 pt-2">
-                      <a
-                        href={getNativeUrl(googleFormUrl)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="bg-white text-stone-950 font-bold px-8 py-4 rounded-xl hover:bg-stone-100 transition-all text-sm flex items-center justify-center gap-2 shadow-lg hover:scale-[1.01]"
-                      >
-                        <ExternalLink size={18} />
-                        Open Official Submission Form
-                      </a>
-                      <span className="text-stone-400 text-xs text-center sm:text-left font-sans">
-                        Opens in a secure new tab
-                      </span>
-                    </div>
+                  <div className="border-x border-stone-100">
+                    <span className="font-semibold text-stone-700 block">Laser Cutting</span>
+                    .DXF, .SVG, .PDF
                   </div>
-
-                  {/* Toggle Embedded Section with explicit explanations */}
-                  <div className="pt-4 border-t border-stone-200 space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <p className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
-                          <Info size={14} className="text-stone-400" />
-                          Embedded Window Options
-                        </p>
-                        <p className="text-[11px] text-stone-400 font-sans">
-                          Try loading the secure Google Form in-situ directly on this page instead.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowEmbeddedForm(!showEmbeddedForm)}
-                        className="flex items-center gap-1 px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-lg transition-colors border border-stone-200"
-                      >
-                        {showEmbeddedForm ? (
-                          <>
-                            <EyeOff size={13} />
-                            Hide Embedded Window
-                          </>
-                        ) : (
-                          <>
-                            <Eye size={13} />
-                            Show Embedded Window
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    {/* Conditional rendering of Embedded Frame with detailed help panel */}
-                    {showEmbeddedForm ? (
-                      <div className="space-y-4 animate-fadeIn">
-                        {/* Clear user help banner if frame fails to connect */}
-                        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 leading-normal space-y-1.5 font-sans">
-                          <p className="font-bold flex items-center gap-1">
-                            <AlertCircle size={14} className="text-amber-700 shrink-0" />
-                            Is the embedded window displaying a "Refused to connect" or blank layout?
-                          </p>
-                          <p className="text-amber-800">
-                            This is standard secure browser behavior! Since our Makerspace Form is configured with a <strong>"File Upload"</strong> field to receive your design documents, Google must verify your account context. Browser security prevents Google sign-in screens from appearing nested inside frames.
-                          </p>
-                          <p className="font-semibold text-amber-950">
-                            👉 Simply click the "Open Official Submission Form" button above to bypass this block immediately in 1 second!
-                          </p>
-                        </div>
-
-                        <div className="w-full h-[650px] bg-stone-50 rounded-2xl overflow-hidden border border-stone-250 shadow-inner relative">
-                          <iframe
-                            src={getEmbedUrl(googleFormUrl)}
-                            width="100%"
-                            height="100%"
-                            frameBorder="0"
-                            marginHeight={0}
-                            marginWidth={0}
-                            title="Google Form Secure Embed"
-                            className="w-full h-full bg-white"
-                          >
-                            Loading submission form...
-                          </iframe>
-                        </div>
-                      </div>
-                    ) : null}
+                  <div>
+                    <span className="font-semibold text-stone-700 block">Scale Limits</span>
+                    Up to 10 GB files
                   </div>
-
                 </div>
               </div>
-
-              {/* Guidelines Sidebar */}
-              <div className="space-y-6">
-                {/* Visual Step checklist */}
-                <div className="bg-stone-50 border border-stone-200 p-6 rounded-3xl space-y-4">
-                  <h4 className="font-bold text-stone-900 text-sm">How to Submit Your Files:</h4>
-                  <div className="space-y-3.5">
-                    <div className="flex gap-3">
-                      <div className="w-5 h-5 rounded-full bg-indigo-105 text-indigo-700 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">1</div>
-                      <p className="text-xs text-stone-600 leading-relaxed font-sans">
-                        Click the high-contrast <strong>Open Official Form</strong> button to navigate safely to our Google workspace bucket.
-                      </p>
-                    </div>
-                    <div className="flex gap-3">
-                      <div className="w-5 h-5 rounded-full bg-indigo-105 text-indigo-700 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">2</div>
-                      <p className="text-xs text-stone-600 leading-relaxed font-sans">
-                        Log in with your academic or Google account if prompted (required for cloud storage file safety).
-                      </p>
-                    </div>
-                    <div className="flex gap-3">
-                      <div className="w-5 h-5 rounded-full bg-indigo-105 text-indigo-700 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">3</div>
-                      <p className="text-xs text-stone-600 leading-relaxed font-sans">
-                        Select and transfer your design files (PDF vectors, STL meshes, CAD references up to 10 GB).
-                      </p>
-                    </div>
-                    <div className="flex gap-3">
-                      <div className="w-5 h-5 rounded-full bg-indigo-105 text-indigo-700 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">4</div>
-                      <p className="text-xs text-stone-600 leading-relaxed font-sans">
-                        Our on-duty staff will parse coordinates, queue machinery, and notify you when execution starts!
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-stone-950 text-white p-7 rounded-3xl shadow-md relative overflow-hidden">
-                  <h3 className="text-base font-bold mb-3 flex items-center gap-2 border-b border-stone-800 pb-1.5 font-sans">
-                    <CheckSquare size={16} className="text-indigo-400" />
-                    Allowed Formats
-                  </h3>
-                  <ul className="space-y-2 text-stone-300 text-xs leading-relaxed font-sans">
-                    <li>&#8226; <strong>3D Printing:</strong> .STL, .OBJ, .3MF, .F3D</li>
-                    <li>&#8226; <strong>Laser Cutting:</strong> .DXF, .SVG, .PDF (vectors only)</li>
-                    <li>&#8226; <strong>General:</strong> .ZIP, .DOCX, image drafts, blueprints</li>
-                    <li>&#8226; <strong>Scale Limit:</strong> Up to 10 GB transfer per document</li>
-                  </ul>
-                </div>
-              </div>
-
             </div>
 
           </motion.div>

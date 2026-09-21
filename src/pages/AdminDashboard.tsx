@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDocs, where, addDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database as DatabaseIcon, Settings, Plus, Trash2, Calendar, Box, UploadCloud, PlayCircle, Download, AlertCircle, Loader2, Camera, Edit2 } from 'lucide-react';
+import { Users, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Database as DatabaseIcon, Settings, Plus, Trash2, Calendar, Box, UploadCloud, PlayCircle, Download, AlertCircle, Loader2, Camera, Edit2, Wrench, Hammer, Cpu, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Custom Confirmation Modal
@@ -205,6 +205,7 @@ export function AdminDashboard() {
   const [newDesignToolIcon, setNewDesignToolIcon] = useState('Box');
   const [newDesignToolColor, setNewDesignToolColor] = useState('bg-indigo-100 text-indigo-700');
   const [newDesignToolType, setNewDesignToolType] = useState<'external' | 'react' | 'iframe'>('iframe');
+  const [newDesignToolCategory, setNewDesignToolCategory] = useState<'normal' | 'making' | 'advanced'>('normal');
   const [newDesignToolImage, setNewDesignToolImage] = useState('');
   const [isSavingDesignTool, setIsSavingDesignTool] = useState(false);
 
@@ -544,6 +545,7 @@ export function AdminDashboard() {
         icon: newDesignToolIcon,
         color: newDesignToolColor,
         type: newDesignToolType,
+        category: newDesignToolCategory,
         imageUrl: newDesignToolImage,
         updatedAt: serverTimestamp()
       };
@@ -563,6 +565,7 @@ export function AdminDashboard() {
       setNewDesignToolIcon('Box');
       setNewDesignToolColor('bg-indigo-100 text-indigo-700');
       setNewDesignToolType('iframe');
+      setNewDesignToolCategory('normal');
       setNewDesignToolImage('');
       setIsAddingDesignTool(false);
       setEditingDesignToolId(null);
@@ -581,6 +584,7 @@ export function AdminDashboard() {
     setNewDesignToolIcon(tool.icon || 'Box');
     setNewDesignToolColor(tool.color || 'bg-indigo-100 text-indigo-700');
     setNewDesignToolType(tool.type || 'iframe');
+    setNewDesignToolCategory(tool.category || 'normal');
     setNewDesignToolImage(tool.imageUrl || '');
     setIsAddingDesignTool(true);
     
@@ -1239,6 +1243,7 @@ export function AdminDashboard() {
                   setNewDesignToolIcon('Box');
                   setNewDesignToolColor('bg-indigo-100 text-indigo-700');
                   setNewDesignToolType('iframe');
+                  setNewDesignToolCategory('normal');
                   setNewDesignToolImage('');
                   setIsAddingDesignTool(true);
                 }}
@@ -1275,17 +1280,31 @@ export function AdminDashboard() {
                     placeholder="Briefly describe what this tool does."
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Tool Type</label>
-                  <select
-                    value={newDesignToolType}
-                    onChange={(e) => setNewDesignToolType(e.target.value as any)}
-                    className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
-                  >
-                    <option value="iframe">Embed Link (Opens in Iframe)</option>
-                    <option value="external">External Link (Opens in New Tab)</option>
-                    <option value="react">Internal React Route (App Route)</option>
-                  </select>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Tool Category</label>
+                    <select
+                      value={newDesignToolCategory}
+                      onChange={(e) => setNewDesignToolCategory(e.target.value as any)}
+                      className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none bg-white font-sans text-sm"
+                    >
+                      <option value="normal">Normal / Standard (Shown on main page)</option>
+                      <option value="making">Tools for Making (Fold-out section)</option>
+                      <option value="advanced">Advanced Design Tools (Fold-out section)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Tool Type</label>
+                    <select
+                      value={newDesignToolType}
+                      onChange={(e) => setNewDesignToolType(e.target.value as any)}
+                      className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none bg-white font-sans text-sm"
+                    >
+                      <option value="iframe">Embed Link (Opens in Iframe)</option>
+                      <option value="external">External Link (Opens in New Tab)</option>
+                      <option value="react">Internal React Route (App Route)</option>
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Tool URL</label>
@@ -1304,7 +1323,7 @@ export function AdminDashboard() {
                     <select
                       value={newDesignToolIcon}
                       onChange={(e) => setNewDesignToolIcon(e.target.value)}
-                      className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
+                      className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none bg-white font-sans text-sm"
                     >
                       <option value="Box">Box</option>
                       <option value="PenTool">PenTool</option>
@@ -1312,6 +1331,10 @@ export function AdminDashboard() {
                       <option value="Image">Image</option>
                       <option value="Scissors">Scissors</option>
                       <option value="Type">Type</option>
+                      <option value="Wrench">Wrench</option>
+                      <option value="Hammer">Hammer</option>
+                      <option value="Cpu">Cpu</option>
+                      <option value="Sparkles">Sparkles</option>
                     </select>
                   </div>
                   <div>
@@ -1319,7 +1342,7 @@ export function AdminDashboard() {
                     <select
                       value={newDesignToolColor}
                       onChange={(e) => setNewDesignToolColor(e.target.value)}
-                      className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none"
+                      className="w-full px-4 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900 outline-none bg-white font-sans text-sm"
                     >
                       <option value="bg-indigo-100 text-indigo-700">Indigo</option>
                       <option value="bg-emerald-100 text-emerald-700">Emerald</option>
@@ -1347,6 +1370,7 @@ export function AdminDashboard() {
                     onClick={() => {
                       setIsAddingDesignTool(false);
                       setEditingDesignToolId(null);
+                      setNewDesignToolCategory('normal');
                     }}
                     className="px-4 py-2 text-stone-600 hover:bg-stone-200 rounded-xl transition-colors"
                   >
@@ -1369,36 +1393,55 @@ export function AdminDashboard() {
             <p className="text-stone-500 text-center py-4">No external tools added yet.</p>
           ) : (
             <div className="space-y-4">
-              {designTools.map(tool => (
-                <div key={tool.id} className="p-4 bg-stone-50 rounded-2xl relative group flex items-start space-x-4">
-                  <div className="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => handleEditDesignTool(tool)}
-                      className="p-2 text-stone-400 hover:text-indigo-600"
-                      title="Edit tool"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteDesignTool(tool.id)}
-                      className="p-2 text-stone-400 hover:text-red-600"
-                      title="Delete tool"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                  {tool.imageUrl && (
-                    <div className="w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 border border-stone-200">
-                      <img src={tool.imageUrl} alt={tool.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              {designTools.map(tool => {
+                const category = tool.category || 'normal';
+                return (
+                  <div key={tool.id} className="p-4 bg-stone-50 rounded-2xl relative group flex items-start space-x-4">
+                    <div className="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleEditDesignTool(tool)}
+                        className="p-2 text-stone-400 hover:text-indigo-600"
+                        title="Edit tool"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteDesignTool(tool.id)}
+                        className="p-2 text-stone-400 hover:text-red-600"
+                        title="Delete tool"
+                      >
+                        <Trash2 size={18} />
+                      </button>
                     </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-stone-900 mb-1 pr-8">{tool.name}</h3>
-                    <p className="text-sm text-stone-600 mb-1">{tool.description}</p>
-                    <p className="text-xs text-stone-400 truncate pr-8">{tool.url}</p>
+                    {tool.imageUrl && (
+                      <div className="w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 border border-stone-200">
+                        <img src={tool.imageUrl} alt={tool.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 pr-8 flex-wrap">
+                        <h3 className="font-semibold text-stone-900">{tool.name}</h3>
+                        {category === 'making' ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                            Tools for Making
+                          </span>
+                        ) : category === 'advanced' ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-purple-100 text-purple-800 border border-purple-200">
+                            Advanced Design Tool
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-stone-200/70 text-stone-700 border border-stone-300">
+                            Normal / Standard
+                          </span>
+                        )}
+                        <span className="text-[11px] text-stone-400">({tool.type || 'iframe'})</span>
+                      </div>
+                      <p className="text-sm text-stone-600 mb-1">{tool.description}</p>
+                      <p className="text-xs text-stone-400 truncate pr-8">{tool.url}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
